@@ -198,8 +198,14 @@ Leader 0 follows the trend and held its short for the whole window, so the only 
 sample is the catch-up of a position opened before the follow started (the engine's lag
 runs from the leader's fill to the follower's order); the follower reached its target in
 two resyncs (each IOC fills part of the thin book within the 20 bps bound). `fill=223`
-counts the follower's fills against many small resting orders. In CI the `e2e-stack` job
-runs the script with the five repositories checked out side by side.
+counts the follower's fills against many small resting orders. Following leader 1
+(mean reversion), which traded during the window, the same run gives lag p50 1.19 ms,
+slippage p50 5.3 and p90 10.7 bps, and an identical journal replay.
+
+In CI the `e2e-stack` job runs the script with hl-copy-api, hl-copy-engine, hl-sim,
+hl-leaderboard and hl-copy-web checked out side by side. The first (cold) run took 33 min:
+29 min in `ox-setup` (the switch, including `bonsai_web` for the web smoke) and 3.5 min
+for the script.
 
 ## Tests
 
