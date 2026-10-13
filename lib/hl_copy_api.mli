@@ -20,3 +20,6 @@ module Agents = Agents
 
 (** Follow records and the follower config files the engine watches. *)
 module Follows = Follows
+
+(** Leaders proxied from [hl-leaderboard serve]. *)
+module Leaders = Leaders
