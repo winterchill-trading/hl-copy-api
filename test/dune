@@ -23,6 +23,8 @@
   exchange-core-engine
   hl-leaderboard
   venue-net
-  cohttp)
+  cohttp
+  pg-async
+  pg-async.testing)
  (preprocess
   (pps ppx_jane)))
