@@ -22,3 +22,15 @@ val recover_personal : message:string -> string -> Address.t Or_error.t
 
 (** Signs like a wallet's [personal_sign]; for tests and scripts. *)
 val sign_personal : Hl_client.Signing.Private_key.t -> string -> string
+
+(** The digest [eth_signTypedData_v4] signs for Hyperliquid's user-signed actions: flat
+    [string], [address] and [uint64] fields in the [HyperliquidSignTransaction] domain, as
+    [Api_types.Approve_agent.typed_data] builds them. Typed data for any
+    [hyperliquidChain] other than ["Testnet"] is an error. *)
+val typed_data_digest : Yojson.Safe.t -> string Or_error.t
+
+(** Signs like a wallet's [eth_signTypedData_v4]; for tests and scripts. *)
+val sign_typed_data
+  :  Hl_client.Signing.Private_key.t
+  -> Yojson.Safe.t
+  -> string Or_error.t
