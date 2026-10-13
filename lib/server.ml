@@ -302,7 +302,7 @@ let me t ~address =
 (* Websocket pushes *)
 
 let push t ~address message =
-  let text = Ws_push.to_string message in
+  let text = Api_types.Ws_push.to_string message in
   Hashtbl.iter t.ws_clients ~f:(fun (c : Ws_client.t) ->
     if Address.equal c.address address && not (Pipe.is_closed c.send)
     then Pipe.write_without_pushback c.send text)
@@ -346,7 +346,7 @@ let stream_fills t (client : Ws_client.t) =
              then
                Pipe.write_without_pushback
                  client.send
-                 (Ws_push.to_string (Fill (Leaders.fill_to_api f))))
+                 (Api_types.Ws_push.to_string (Fill (Leaders.fill_to_api f))))
          | Fills { is_snapshot = true; _ } | Position _ | Resync _ -> ()))
 ;;
 
@@ -386,7 +386,7 @@ let ws_upgrade t req ~address =
         let send_me () =
           let%map me = me t ~address in
           if not (Pipe.is_closed outgoing)
-          then Pipe.write_without_pushback outgoing (Ws_push.to_string (Me me))
+          then Pipe.write_without_pushback outgoing (Api_types.Ws_push.to_string (Me me))
         in
         let%bind () = send_me () in
         don't_wait_for (stream_fills t client);

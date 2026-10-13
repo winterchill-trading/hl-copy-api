@@ -20,7 +20,7 @@ POST   /follows/:id/pause|resume|stop  auth -> Follow
 GET    /leaders                        -> Leaders_response
 GET    /leaders/:address               -> Leader_detail
 GET    /me                     auth    -> Me
-GET    /ws?token=<token>               websocket, see {!Ws_push}
+GET    /ws?token=<token>               websocket, see {!Api_types.Ws_push}
     v}
 
     Errors are {!Api_types.Api_error} with 400 (bad body), 401 (no or bad session), 404,
