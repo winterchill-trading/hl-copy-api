@@ -21,7 +21,14 @@ type t =
   ; state_dir : string
   }
 
-let create ~config_dir ~state_dir = { config_dir; state_dir }
+(* Both directories are created up front: the engine watches [config_dir] from its own
+   container (read-only mount) and reports it as an error until it exists. *)
+let create ~config_dir ~state_dir =
+  Core_unix.mkdir_p config_dir;
+  Core_unix.mkdir_p state_dir;
+  { config_dir; state_dir }
+;;
+
 let config_dir t = t.config_dir
 
 let id ~follower ~leader =
