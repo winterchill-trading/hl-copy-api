@@ -1,6 +1,8 @@
 (library
  (name hl_copy_api_test)
  (inline_tests
+  (deps
+   (source_tree fixtures))
   (flags
    (:standard -source-tree-root .)))
  (libraries
@@ -19,6 +21,7 @@
   hl-protocol
   hl-client
   hl-sim
-  exchange-core-engine)
+  exchange-core-engine
+  hl-leaderboard)
  (preprocess
   (pps ppx_jane)))
