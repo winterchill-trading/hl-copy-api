@@ -5,3 +5,6 @@ module Wallet_signature = Wallet_signature
 
 (** HMAC-signed, expiring session tokens. *)
 module Session = Session
+
+(** Single-use login challenges in the Sign-In with Ethereum layout. *)
+module Challenge = Challenge
