@@ -5,7 +5,7 @@ let of_bytes s = String.concat_map s ~f:(fun c -> sprintf "%02x" (Char.to_int c)
 let to_bytes hex =
   let n = String.length hex in
   if n % 2 <> 0 || not (String.for_all hex ~f:Char.is_hex_digit)
-  then Or_error.error_s [%message "not an even number of hex digits" (n : int)]
+  then Or_error.error_s [%message "expected an even number of hex digits" (hex : string)]
   else
     Ok
       (String.init (n / 2) ~f:(fun i ->

@@ -30,6 +30,9 @@ module Store = Store
 (** {!Store.S} in memory. *)
 module Store_memory = Store_memory
 
+(** {!Store.S} on PostgreSQL. *)
+module Store_pg = Store_pg
+
 (** Follow records and the follower config files the engine watches. *)
 module Follows = Follows
 
