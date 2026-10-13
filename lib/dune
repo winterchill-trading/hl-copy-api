@@ -1,0 +1,25 @@
+(library
+ (name hl_copy_api)
+ (public_name hl-copy-api)
+ (libraries
+  core
+  core_unix
+  core_unix.sys_unix
+  async
+  cohttp
+  cohttp-async
+  http
+  async_websocket
+  cryptokit
+  uri
+  yojson
+  ppx_yojson_conv_lib
+  hl-copy-keystore
+  hl-protocol
+  hl-client
+  hl-copy-core
+  hl-copy-api-types
+  market-data
+  venue-net)
+ (preprocess
+  (pps ppx_jane ppx_yojson_conv)))
