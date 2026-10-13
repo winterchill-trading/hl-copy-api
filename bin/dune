@@ -1,0 +1,15 @@
+(executable
+ (name main)
+ (public_name hl-copy-api)
+ (package hl-copy-api)
+ (libraries
+  core
+  async
+  core_unix.command_unix
+  uri
+  cohttp-async
+  hl-copy-api
+  hl-copy-keystore
+  hl-protocol)
+ (preprocess
+  (pps ppx_jane)))
