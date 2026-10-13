@@ -39,7 +39,8 @@ module Config : sig
     { exchange_url : Uri.t (** hl-sim or testnet; mainnet is refused *)
     ; leaderboard_url : Uri.t option (** [hl-leaderboard serve] *)
     ; engine_url : Uri.t option (** hl-copy-engine, for [/status] *)
-    ; state_dir : string (** [agents/] (sealed keys) and [follows/] (records) *)
+    ; state_dir : string
+    (** [agents/] ({!Hl_copy_core.Key_store} files) and [follows/] (records) *)
     ; config_dir : string (** follower configs the engine watches *)
     ; public_url : Uri.t (** this API as browsers reach it; the sign-in domain and URI *)
     ; allowed_origins : string list (** CORS; ["*"] allows any origin *)
@@ -60,7 +61,7 @@ end
 
 type t
 
-val create : Config.t -> master_key:Hl_copy_keystore.Sealed.Master_key.t -> t Or_error.t
+val create : Config.t -> master_key:Hl_copy_core.Key_store.Master_key.t -> t Or_error.t
 val config : t -> Config.t
 val metrics : t -> Metrics.t
 val agents : t -> Agents.t

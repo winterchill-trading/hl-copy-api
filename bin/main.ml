@@ -73,7 +73,7 @@ let command =
        let open Deferred.Or_error.Let_syntax in
        Log.Global.set_output [ Log.Output.stderr () ];
        let%bind master_key =
-         Deferred.return (Hl_copy_keystore.Sealed.Master_key.of_env ())
+         Deferred.return (Hl_copy_core.Key_store.Master_key.of_env ())
        in
        let%bind builder =
          match builder with

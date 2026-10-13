@@ -21,8 +21,7 @@ end
 let ms_of_time time = Time_ns.to_int_ns_since_epoch time / 1_000_000
 
 let mac t payload =
-  Cryptokit.hash_string (Cryptokit.MAC.hmac_sha256 t.key) payload
-  |> Hl_copy_keystore.Sealed.to_hex
+  Cryptokit.hash_string (Cryptokit.MAC.hmac_sha256 t.key) payload |> Hex.of_bytes
 ;;
 
 let payload (c : Claims.t) =

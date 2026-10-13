@@ -8,7 +8,7 @@ open Hl_protocol
 
 type t
 
-(** [key] should be 32 random bytes ({!Hl_copy_keystore.Sealed.Master_key.derive}). [ttl]
+(** [key] should be 32 random bytes ({!Hl_copy_core.Key_store.Master_key.derive}). [ttl]
     defaults to 24 hours. *)
 val create : ?ttl:Time_ns.Span.t -> key:string -> unit -> t
 

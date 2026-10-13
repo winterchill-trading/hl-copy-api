@@ -6,7 +6,7 @@ module Signing = Hl_client.Signing
 module C = Api_client
 
 let master =
-  Hl_copy_keystore.Sealed.Master_key.of_hex (String.make 64 'e') |> Or_error.ok_exn
+  Hl_copy_core.Key_store.Master_key.of_hex (String.make 64 'e') |> Or_error.ok_exn
 ;;
 
 let builder = Address.of_string "0x53aa631b2d8d1fb87aa4dcff435c2dc6e62dbe27"
@@ -79,15 +79,13 @@ let approve_agent client ~token key =
 ;;
 
 let agent_key ~dir ~owner =
-  let keys =
-    Hl_copy_keystore.Agent_keys.create ~dir:(dir ^/ "state" ^/ "agents") master
+  (* What the engine does: the same master key, the same state directory. *)
+  let store =
+    Hl_copy_core.Key_store.create ~master_key:master ~state_dir:(dir ^/ "state") ()
+    |> Or_error.ok_exn
   in
-  let entry =
-    Hl_copy_keystore.Agent_keys.active keys ~owner |> Or_error.ok_exn |> Option.value_exn
+  let _entry, hex =
+    Hl_copy_core.Key_store.get store ~account:owner |> Or_error.ok_exn |> Option.value_exn
   in
-  Hl_copy_keystore.Agent_keys.secret keys entry
-  |> Or_error.ok_exn
-  |> Hl_copy_keystore.Sealed.to_hex
-  |> Signing.Private_key.of_hex
-  |> Or_error.ok_exn
+  Signing.Private_key.of_hex hex |> Or_error.ok_exn
 ;;

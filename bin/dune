@@ -9,7 +9,7 @@
   uri
   cohttp-async
   hl-copy-api
-  hl-copy-keystore
+  hl-copy-core
   hl-protocol)
  (preprocess
   (pps ppx_jane)))

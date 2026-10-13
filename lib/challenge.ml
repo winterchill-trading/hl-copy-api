@@ -86,7 +86,7 @@ let issue ?nonce t address ~now =
   let nonce =
     match nonce with
     | Some nonce -> nonce
-    | None -> Hl_copy_keystore.Sealed.(to_hex (random_bytes 8))
+    | None -> Hex.random 8
   in
   let expires = Time_ns.add now t.ttl in
   let message = message t ~address ~nonce ~issued:now ~expires in

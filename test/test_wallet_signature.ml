@@ -11,8 +11,7 @@ let eth_account_signature =
 ;;
 
 let%expect_test "personal_sign digest, signature and recovery match eth_account" =
-  print_endline
-    (Hl_copy_keystore.Sealed.to_hex (Wallet_signature.personal_message_digest message));
+  print_endline (Hex.of_bytes (Wallet_signature.personal_message_digest message));
   [%expect {| db34bcbecbd6e8cb6815562a18355fcc08b0907dfbb6f5ba66934c45d4acd0eb |}];
   print_endline (Wallet_signature.sign_personal key message);
   [%expect

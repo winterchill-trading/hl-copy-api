@@ -2,7 +2,7 @@ open! Core
 open! Async
 open Hl_protocol
 open Ppx_yojson_conv_lib.Yojson_conv.Primitives
-module Agent_keys = Hl_copy_keystore.Agent_keys
+module Key_store = Hl_copy_core.Key_store
 
 module Config = struct
   type t =
@@ -115,8 +115,8 @@ let follows t = t.follows
 
 let create (config : Config.t) ~master_key =
   let open Or_error.Let_syntax in
-  let%map venue = Venue.create ~base_url:config.exchange_url () in
-  let keys = Agent_keys.create ~dir:(config.state_dir ^/ "agents") master_key in
+  let%bind venue = Venue.create ~base_url:config.exchange_url () in
+  let%bind key_store = Key_store.create ~master_key ~state_dir:config.state_dir () in
   let host = Option.value (Uri.host config.public_url) ~default:"localhost" in
   let domain =
     match Uri.port config.public_url with
@@ -129,7 +129,7 @@ let create (config : Config.t) ~master_key =
     ; session =
         Session.create
           ~ttl:config.session_ttl
-          ~key:(Hl_copy_keystore.Sealed.Master_key.derive master_key ~label:"session")
+          ~key:(Key_store.Master_key.derive master_key ~label:"session")
           ()
     ; challenges =
         Challenge.create
@@ -137,7 +137,7 @@ let create (config : Config.t) ~master_key =
           ~uri:(Uri.to_string config.public_url)
           ~chain_id:(Int.of_string (Venue.signature_chain_id venue))
           ()
-    ; agents = Agents.create ?builder:config.builder ~keys venue
+    ; agents = Agents.create ?builder:config.builder ~key_store venue
     ; follows =
         Follows.create
           ~config_dir:config.config_dir
@@ -162,7 +162,7 @@ let create (config : Config.t) ~master_key =
     Float.of_int (Challenge.outstanding t.challenges));
   Metrics.gauge t.metrics "ws_clients" (fun () ->
     Float.of_int (Hashtbl.length t.ws_clients));
-  t
+  return t
 ;;
 
 (* Replies *)
@@ -238,24 +238,31 @@ let ms_now () = Time_ns.to_int_ns_since_epoch (Time_ns.now ()) / 1_000_000
 (* Views *)
 
 let agent_status t ~owner : Api_types.Agent_status.t option =
-  let entries = Agent_keys.entries (Agents.keys t.agents) ~owner |> Result.ok in
-  let entries = Option.value entries ~default:[] in
-  let pick =
-    match List.find entries ~f:(fun e -> Agent_keys.Status.equal e.status Active) with
-    | Some e -> Some e
-    | None -> List.find entries ~f:(fun e -> Agent_keys.Status.equal e.status Pending)
+  let builder_fee =
+    match t.config.builder with
+    | Some b when Agents.builder_fee_approved t.agents ~owner ->
+      Some (Builder_fee.percent_of_tenths_bp b.max_fee_tenths_bp)
+    | Some _ | None -> None
   in
-  Option.map pick ~f:(fun (e : Agent_keys.Entry.t) ->
-    { Api_types.Agent_status.agent_address = Approvals.address_to_api e.agent_address
-    ; agent_name = e.agent_name
-    ; approved = Agent_keys.Status.equal e.status Active
-    ; valid_until = Option.map e.valid_until_ms ~f:Float.of_int
-    ; builder_fee =
-        (match t.config.builder with
-         | Some b when Agents.builder_fee_approved t.agents ~owner ->
-           Some (Builder_fee.percent_of_tenths_bp b.max_fee_tenths_bp)
-         | Some _ | None -> None)
-    })
+  let ms time = Float.of_int (Time_ns.to_int_ns_since_epoch time / 1_000_000) in
+  match Agents.active t.agents ~owner, Agents.pending t.agents ~owner with
+  | Some (e : Key_store.Entry.t), _ ->
+    Some
+      { agent_address = Approvals.address_to_api e.agent_address
+      ; agent_name = e.agent_name
+      ; approved = true
+      ; valid_until = Option.map e.valid_until ~f:ms
+      ; builder_fee
+      }
+  | None, Some (p : Agents.Pending.t) ->
+    Some
+      { agent_address = Approvals.address_to_api p.agent_address
+      ; agent_name = p.agent_name
+      ; approved = false
+      ; valid_until = Some (ms p.valid_until)
+      ; builder_fee
+      }
+  | None, None -> None
 ;;
 
 let follow_view (engine : Engine_status.t) (r : Follows.Record.t) : Api_types.Follow.t =
@@ -531,16 +538,14 @@ let route t ~body req ~meth ~path =
             ~signature:r.signature
             ()
         in
-        let (_ : Agent_keys.Entry.t) = ok_or ~status:`Bad_gateway result in
+        let (_ : Key_store.Entry.t) = ok_or ~status:`Bad_gateway result in
         Metrics.incr t.metrics "agents_approved";
         agent_status_reply owner )
   | `POST, [ "agent"; "revoke" ] ->
     ( "/agent/revoke"
     , fun () ->
         let owner = auth () in
-        let (_ : Agent_keys.Entry.t) =
-          Agents.revoke t.agents ~owner |> ok_or ~status:`Conflict
-        in
+        Agents.revoke t.agents ~owner |> ok_or ~status:`Conflict;
         (* Without an agent the engine cannot trade; pause the user's running follows so
            the dashboard says so. *)
         List.iter (Follows.list t.follows ~follower:owner) ~f:(fun r ->

@@ -15,7 +15,6 @@
   yojson
   uri
   hl-copy-api
-  hl-copy-keystore
   hl-copy-api-types
   hl-copy-core
   hl-protocol

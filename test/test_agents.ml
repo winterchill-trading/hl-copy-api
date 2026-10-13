@@ -2,20 +2,17 @@ open! Core
 open! Async
 open Hl_copy_api
 module Address = Hl_protocol.Address
-module Agent_keys = Hl_copy_keystore.Agent_keys
+module Key_store = Hl_copy_core.Key_store
 module Signing = Hl_client.Signing
 
-let master =
-  Hl_copy_keystore.Sealed.Master_key.of_hex (String.make 64 'd') |> Or_error.ok_exn
-;;
-
+let master = Key_store.Master_key.of_hex (String.make 64 'd') |> Or_error.ok_exn
 let builder = Address.of_string "0x53aa631b2d8d1fb87aa4dcff435c2dc6e62dbe27"
 
 let setup (sim : Sim.t) dir =
   let venue = Venue.create ~base_url:sim.base_url () |> Or_error.ok_exn in
   Agents.create
     ~builder:{ address = builder; max_fee_tenths_bp = 10 }
-    ~keys:(Agent_keys.create ~dir:(dir ^/ "agents") master)
+    ~key_store:(Key_store.create ~master_key:master ~state_dir:dir () |> Or_error.ok_exn)
     venue
 ;;
 
@@ -102,17 +99,15 @@ let%expect_test "offer, sign, approve on the simulator, rotate" =
         (10 true)
         |}];
       (* The stored key is the agent's: it opens and has the agent's address. *)
-      let active = Agents.active agents ~owner |> Option.value_exn in
-      let key =
-        Agent_keys.secret (Agents.keys agents) active
+      let _entry, hex =
+        Key_store.get (Agents.key_store agents) ~account:owner
         |> Or_error.ok_exn
-        |> Hl_copy_keystore.Sealed.to_hex
-        |> Signing.Private_key.of_hex
-        |> Or_error.ok_exn
+        |> Option.value_exn
       in
+      let key = Signing.Private_key.of_hex hex |> Or_error.ok_exn in
       print_s [%sexp (Address.equal (Signing.Private_key.address key) agent : bool)];
       [%expect {| true |}];
-      (* Rotation: a new offer is a new key, and approving it revokes the old one. *)
+      (* Rotation: a new offer is a new key, and approving it replaces the old one. *)
       let offer2 =
         Agents.offer agents ~owner ~now:(Time_ns.add now (Time_ns.Span.of_ms 1.))
         |> Or_error.ok_exn
@@ -135,13 +130,20 @@ let%expect_test "offer, sign, approve on the simulator, rotate" =
       print_result r;
       print_s
         [%sexp
-          (Agent_keys.entries (Agents.keys agents) ~owner
-           |> Or_error.ok_exn
-           |> List.map ~f:(fun (e : Agent_keys.Entry.t) -> e.status)
-           : Agent_keys.Status.t list)];
+          (Option.map (Agents.active agents ~owner) ~f:(fun e ->
+             Api_types.Address.equal
+               (Approvals.address_to_api e.agent_address)
+               offer2.approve_agent.agent_address)
+           : bool option)];
       [%expect {|
         (Ok ok)
-        (Active Revoked)
+        (true)
+        |}];
+      print_s [%sexp (Agents.revoke agents ~owner : unit Or_error.t)];
+      print_s [%sexp (Option.is_some (Agents.active agents ~owner) : bool)];
+      [%expect {|
+        (Ok ())
+        false
         |}];
       return ()))
 ;;
@@ -153,7 +155,7 @@ let%expect_test "approving without an offer, or with a changed action, fails" =
       let user_key = Sim.wallet_key 3 in
       let owner = Signing.Private_key.address user_key in
       let%bind r = Agents.approve_agent agents ~owner ~signature:"0x00" () in
-      print_s [%sexp (r : Agent_keys.Entry.t Or_error.t)];
+      print_s [%sexp (r : Key_store.Entry.t Or_error.t)];
       [%expect {| (Error "no pending agent; request an offer first") |}];
       let offer = Agents.offer agents ~owner ~now:(Time_ns.now ()) |> Or_error.ok_exn in
       let changed = { offer.approve_agent with agent_name = "something else" } in

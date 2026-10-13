@@ -4,7 +4,7 @@
 open! Core
 open! Async
 
-val master : Hl_copy_keystore.Sealed.Master_key.t
+val master : Hl_copy_core.Key_store.Master_key.t
 
 val with_api
   :  ?configure:(Hl_copy_api.Server.Config.t -> Hl_copy_api.Server.Config.t)
