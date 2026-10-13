@@ -165,9 +165,20 @@ sleep "$warmup_s"
 say "collecting the leaderboard from the simulator"
 # Every account (3 leaders and 40 noise traders) is a candidate; the local simulator
 # needs no request budget.
-"$lb_exe" collect -out "$log_dir/leaderboard" -network local -base-url "$sim" \
-  -min-account-value 0 -top 50 -lookback-days 1 -weight-per-minute 1000000 \
-  >>"$log_dir/leaderboard.log" 2>&1 || fail "hl-leaderboard collect failed"
+# hl-sim's leaderboard sometimes answers 400 (an ROI overflowing Float.iround) in the
+# first minute of a run, so the collection is retried.
+collected=0
+for attempt in 1 2 3 4; do
+  if "$lb_exe" collect -out "$log_dir/leaderboard" -network local -base-url "$sim" \
+    -min-account-value 0 -top 50 -lookback-days 1 -weight-per-minute 1000000 \
+    >>"$log_dir/leaderboard.log" 2>&1; then
+    collected=1
+    break
+  fi
+  say "collect attempt $attempt failed; retrying in 10 s"
+  sleep 10
+done
+((collected)) || fail "hl-leaderboard collect failed"
 "$lb_exe" rank -in "$log_dir/leaderboard" -out "$log_dir/leaderboard/leaders.json" \
   -min-trades 1 >>"$log_dir/leaderboard.log" 2>&1 || fail "hl-leaderboard rank failed"
 "$lb_exe" serve -port "$lb_port" -dir "$log_dir/leaderboard" >>"$log_dir/leaderboard.log" 2>&1 &
