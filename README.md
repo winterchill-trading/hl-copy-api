@@ -205,7 +205,8 @@ slippage p50 5.3 and p90 10.7 bps, and an identical journal replay.
 In CI the `e2e-stack` job runs the script with hl-copy-api, hl-copy-engine, hl-sim,
 hl-leaderboard and hl-copy-web checked out side by side. The first (cold) run took 33 min:
 29 min in `ox-setup` (the switch, including `bonsai_web` for the web smoke) and 3.5 min
-for the script.
+for the script. A warm run (cached switch) takes about 9 min, so the job stays in
+`ci.yml` rather than a nightly workflow.
 
 ## Tests
 
