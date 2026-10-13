@@ -142,6 +142,65 @@ derives the ChaCha20 key (no key and nonce pair repeats) and the account and age
 addresses as associated data. Moving to ChaCha20-Poly1305 or AES-GCM is a TODO for when
 the switch has a cryptokit with AEAD.
 
+## End to end on hl-sim
+
+`scripts/e2e-stack.sh` runs the whole platform on the simulator and drives it the way the
+browser does, with a throwaway wallet made by `openssl` (never printed):
+
+1. builds hl-sim, hl-leaderboard, this API, hl-copy-engine and `tools/dev_wallet.exe`
+   from the dune workspace (or takes them from `HL_SIM`, `HL_LEADERBOARD`, `HL_COPY_API`,
+   `HL_COPY_ENGINE` and `DEV_WALLET`);
+2. starts hl-sim (`-leaders 3 -noise-traders 40 -strict-signatures`, seed 7, every
+   account at $100,000 like the leaders, so `Equity_ratio` copies about one for one),
+   lets it trade, then `hl-leaderboard collect`, `rank` and `serve` against it;
+3. starts the API (builder fee 0.01%) and the engine on the API's key store
+   (`-state-dir`, same `HL_COPY_MASTER_KEY`);
+4. challenge, `personal_sign`, verify; `/agent/new`, `approveAgent` signed as
+   `eth_signTypedData_v4`, `/agent/approved`; `/builder-fee`; follows leader 0 with
+   `{"kind":"equity_ratio"}` and caps; listens on `/ws`;
+5. after `FOLLOW_S` (90) seconds checks that `/me` shows the follower's position, that it
+   matches the exchange, and that it is within one lot (plus the $10 minimum order) of
+   the leader's position scaled by the two equities the engine works with;
+6. pauses (the engine reports `paused`, no open orders, no new orders over two resyncs),
+   stops (the follower config is removed and the engine drops the follow), checks that
+   `/ws` pushed `follow` and `fill` messages, runs hl-copy-web's `smoke/live.js` against
+   this API with a second wallet, and replays the follow's journal.
+
+```sh
+scripts/e2e-stack.sh                    # about 3 minutes once built
+LEADER=0x1eade50000000000000000000000000000000001 FOLLOW_S=60 SMOKE=0 scripts/e2e-stack.sh
+```
+
+`tools/dev_wallet.exe` (`address`, `personal-sign`, `sign-typed-data`) signs like a
+browser wallet with the key in `HL_COPY_WALLET_KEY` and refuses typed data for
+Hyperliquid Mainnet; the smoke test's fake `window.ethereum` calls it.
+
+One run (seed 7, leader 0, 20 s of warm-up, 90 s of following, 2026-10-13):
+
+```
+check                  result
+tracking (BTC)         {"ok": true, "me": -2.34494, "exchange": -2.34494, "target": -2.34491, "leader": -2.33688, ...}
+orders                 5
+fills                  5
+rejects                0
+resyncs                22
+lag p50 (ms)           12835.79
+lag max (ms)           12835.79
+slippage p50 (bps)     11.4561
+slippage p90 (bps)     11.5863
+follow pnl (USD)       2038.53
+ws pushes              fill=223 follow=3 me=8
+web smoke              all 4 steps passed against http://127.0.0.1:8580; 15 API requests
+journal                ((entries 72) (inputs 36) (outputs 36) (orders 5) (identical true))
+```
+
+Leader 0 follows the trend and held its short for the whole window, so the only lag
+sample is the catch-up of a position opened before the follow started (the engine's lag
+runs from the leader's fill to the follower's order); the follower reached its target in
+two resyncs (each IOC fills part of the thin book within the 20 bps bound). `fill=223`
+counts the follower's fills against many small resting orders. In CI the `e2e-stack` job
+runs the script with the five repositories checked out side by side.
+
 ## Tests
 
 `dune test` runs everything in-process: login, agent and builder fee approval, follows,
