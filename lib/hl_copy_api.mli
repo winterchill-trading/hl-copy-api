@@ -24,6 +24,12 @@ module Agents = Agents
 (** One follow as the API keeps it. *)
 module Follow_record = Follow_record
 
+(** Where follows, agents and builder fee approvals are kept. *)
+module Store = Store
+
+(** {!Store.S} in memory. *)
+module Store_memory = Store_memory
+
 (** Follow records and the follower config files the engine watches. *)
 module Follows = Follows
 
