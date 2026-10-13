@@ -5,57 +5,9 @@ module Address = Hl_protocol.Address
 module Signing = Hl_client.Signing
 module C = Api_client
 
-let master =
-  Hl_copy_keystore.Sealed.Master_key.of_hex (String.make 64 'e') |> Or_error.ok_exn
-;;
-
 let leader = Address.of_string "0x87f9cd15f5050a9283b8896300f7c8cf69ece2cf"
-let builder = Address.of_string "0x53aa631b2d8d1fb87aa4dcff435c2dc6e62dbe27"
-
-let with_api ?(configure = Fn.id) f =
-  Sim.with_sim (fun sim ->
-    Sim.with_dir (fun dir ->
-      let config =
-        configure
-          { Server.Config.default with
-            exchange_url = sim.base_url
-          ; state_dir = dir ^/ "state"
-          ; config_dir = dir ^/ "configs"
-          ; builder = Some { address = builder; max_fee_tenths_bp = 10 }
-          ; ws_status_interval = Time_ns.Span.of_min 10.
-          }
-      in
-      let api = Server.create config ~master_key:master |> Or_error.ok_exn in
-      let%bind http = Server.start api ~port:0 in
-      let client = C.create ~port:(Cohttp_async.Server.listening_on http) in
-      Monitor.protect
-        (fun () -> f ~sim ~api ~client ~dir)
-        ~finally:(fun () ->
-          let%bind () = Server.close api in
-          Cohttp_async.Server.close http)))
-;;
-
-let login client key =
-  let address = Address.to_string (Signing.Private_key.address key) in
-  let%bind _, challenge =
-    C.call client `POST "/auth/challenge" ~body:(`Assoc [ "address", `String address ])
-  in
-  let message = C.str "message" challenge in
-  let%map status, session =
-    C.call
-      client
-      `POST
-      "/auth/verify"
-      ~body:
-        (`Assoc
-          [ "address", `String address
-          ; "nonce", `String (C.str "nonce" challenge)
-          ; "signature", `String (Wallet_signature.sign_personal key message)
-          ])
-  in
-  assert (status = 200);
-  C.str "token" session
-;;
+let with_api = Flow.with_api
+let login = Flow.login
 
 (* Signs what the API offered, the way the browser hands typed data to the wallet. *)
 let sign_offer key offer ~field ~to_action =
@@ -192,21 +144,7 @@ let%expect_test "login, agent, builder fee, follow, pause, stop against hl-sim" 
     [%expect {| (200 0.01%) |}];
     (* The engine's view: the sealed key opens and trades for the owner on the simulator,
        which verifies every signature. *)
-    let keys =
-      Hl_copy_keystore.Agent_keys.create ~dir:(dir ^/ "state" ^/ "agents") master
-    in
-    let entry =
-      Hl_copy_keystore.Agent_keys.active keys ~owner
-      |> Or_error.ok_exn
-      |> Option.value_exn
-    in
-    let agent_key =
-      Hl_copy_keystore.Agent_keys.secret keys entry
-      |> Or_error.ok_exn
-      |> Hl_copy_keystore.Sealed.to_hex
-      |> Signing.Private_key.of_hex
-      |> Or_error.ok_exn
-    in
+    let agent_key = Flow.agent_key ~dir ~owner in
     let trading =
       Hl_client.Client.trading_with_agent
         ~is_mainnet:false
