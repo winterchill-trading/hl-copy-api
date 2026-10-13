@@ -99,13 +99,14 @@ curl -s $API/me -H "authorization: Bearer $TOKEN"
   recovers the `personal_sign` signer (EIP-191, Keccak and secp256k1 recovery from
   hl-client) and issues a stateless token `<address>.<issued_ms>.<expires_ms>.<mac>`,
   HMAC-SHA256 under a key derived from the master key. Nothing is stored per session.
-- **Agents.** `/agent/new` generates a fresh secp256k1 key, seals it into the keystore
-  as pending and offers `approveAgent` for a named agent `hl-copy valid_until <ms>`
+- **Agents.** `/agent/new` generates a fresh secp256k1 key, keeps it in memory as
+  pending and offers `approveAgent` for a named agent `hl-copy valid_until <ms>`
   (179 days ahead, inside the documented 180). An unapproved offer younger than an hour
   is offered again instead of minting another key. `/agent/approved` checks that the
   signed action is the pending one (the browser may change only `signatureChainId`),
-  that it recovers to the logged-in wallet, posts it to `/exchange`, and marks the agent
-  active; a previous active agent becomes revoked. Agent addresses are never reused.
+  that it recovers to the logged-in wallet, posts it to `/exchange`, and seals the key into
+  the key store, replacing the previous agent. Every offer is a new key, so agent
+  addresses are never reused.
   Every nonce the server hands out for one wallet is distinct, even within a millisecond.
 - **Builder fee.** Offered with the agent when `-builder` is set, signed by the wallet,
   submitted the same way.
