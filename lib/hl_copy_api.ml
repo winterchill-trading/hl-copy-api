@@ -3,3 +3,4 @@ module Session = Session
 module Challenge = Challenge
 module Venue = Venue
 module Approvals = Approvals
+module Agents = Agents

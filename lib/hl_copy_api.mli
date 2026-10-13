@@ -14,3 +14,6 @@ module Venue = Venue
 
 (** [approveAgent] and [approveBuilderFee]: offers, signer checks, submission. *)
 module Approvals = Approvals
+
+(** Per-user agent key offers and approvals, builder fee approvals. *)
+module Agents = Agents
