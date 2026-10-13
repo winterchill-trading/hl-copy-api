@@ -11,12 +11,8 @@ the shared request and response types (`Api_types`, opam package `hl-copy-api-ty
 `hyperliquid.xyz` at startup and only builds approvals for `hyperliquidChain: "Testnet"`.
 It never asks for or sees a user's wallet key.
 
-## Packages
-
-| Package | Library | Purpose |
-| --- | --- | --- |
-| `hl-copy-api` | `Hl_copy_api` | Server, routes, login, approvals, follows; binary `hl-copy-api` |
-| `hl-copy-keystore` | `Hl_copy_keystore` | Sealed agent key files; small on purpose so the engine can read keys without the server |
+Library `hl-copy-api` (module `Hl_copy_api`) and binary `hl-copy-api`. Approved agent
+keys go to `Hl_copy_core.Key_store`, which the engine reads with the same master key.
 
 ## Running
 
@@ -125,26 +121,25 @@ curl -s $API/me -H "authorization: Bearer $TOKEN"
 
 ### Agent keys at rest
 
-`<state>/agents/<owner>.sexp` (mode 0600) holds every agent of a user, newest first:
-address, name, nonce, expiry, status (`Pending`, `Active`, `Revoked`) and the sealed key.
-The engine opens the active one:
+Unapproved offers live in memory only (a restart means asking for a new offer). Once the
+exchange accepts `approveAgent`, the key is sealed into `Hl_copy_core.Key_store`:
+`<state>/agents/<account>.key`, mode 0600, the account's current agent (address, name,
+created, valid until, ciphertext, nonce, tag). Approving another agent replaces it;
+`/agent/revoke` deletes it. The engine opens it with the same `HL_COPY_MASTER_KEY`:
 
 ```ocaml
-let keys = Hl_copy_keystore.Agent_keys.create ~dir master_key in
-match Hl_copy_keystore.Agent_keys.active keys ~owner with
-| Ok (Some entry) ->
-  Hl_copy_keystore.Agent_keys.secret keys entry      (* 32 bytes *)
-  |> Or_error.map ~f:Hl_copy_keystore.Sealed.to_hex
-  |> Or_error.bind ~f:Hl_client.Signing.Private_key.of_hex
-| _ -> ...
+let%bind store = Hl_copy_core.Key_store.create ~state_dir () in   (* master key from env *)
+match Hl_copy_core.Key_store.get store ~account with
+| Ok (Some (_entry, hex)) -> Hl_client.Signing.Private_key.of_hex hex
+| Ok None -> (* no approved agent: do not trade *)
+| Error _ -> (* wrong master key or tampered file *)
 ```
 
-Sealing: cryptokit 1.16 on the switch has no AEAD mode, so `Sealed` composes ChaCha20 and
-HMAC-SHA256 as encrypt-then-MAC, with a fresh 24-byte random salt per key that derives
-the ChaCha20 key (no key and nonce pair repeats) and the owner and agent addresses as
-associated data. The layout was cross-checked against an independent Python
-implementation. A move to ChaCha20-Poly1305 or AES-GCM is a TODO for when the switch has
-a cryptokit with AEAD; the version byte leaves room for it.
+Sealing: cryptokit 1.16 on the switch has no AEAD mode, so `Key_store` composes ChaCha20
+and HMAC-SHA256 as encrypt-then-MAC, with a fresh 24-byte random nonce per key that
+derives the ChaCha20 key (no key and nonce pair repeats) and the account and agent
+addresses as associated data. Moving to ChaCha20-Poly1305 or AES-GCM is a TODO for when
+the switch has a cryptokit with AEAD.
 
 ## Tests
 
