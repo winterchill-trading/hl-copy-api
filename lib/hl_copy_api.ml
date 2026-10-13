@@ -1,1 +1,2 @@
 module Wallet_signature = Wallet_signature
+module Session = Session
