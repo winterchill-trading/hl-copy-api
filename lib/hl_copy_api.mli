@@ -23,3 +23,6 @@ module Follows = Follows
 
 (** Leaders proxied from [hl-leaderboard serve]. *)
 module Leaders = Leaders
+
+(** The engine's [/status], decoded leniently. *)
+module Engine_status = Engine_status
