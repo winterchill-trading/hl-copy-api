@@ -17,3 +17,6 @@ module Approvals = Approvals
 
 (** Per-user agent key offers and approvals, builder fee approvals. *)
 module Agents = Agents
+
+(** Follow records and the follower config files the engine watches. *)
+module Follows = Follows

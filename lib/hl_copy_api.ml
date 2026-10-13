@@ -4,3 +4,4 @@ module Challenge = Challenge
 module Venue = Venue
 module Approvals = Approvals
 module Agents = Agents
+module Follows = Follows
