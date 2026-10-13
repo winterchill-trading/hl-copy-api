@@ -1,0 +1,14 @@
+; A wallet for scripts and smoke tests: signs like a browser wallet with a throwaway key
+; read from the environment. Not installed.
+
+(executable
+ (name dev_wallet)
+ (libraries
+  core
+  core_unix.command_unix
+  yojson
+  hl-copy-api
+  hl-protocol
+  hl-client)
+ (preprocess
+  (pps ppx_jane)))
