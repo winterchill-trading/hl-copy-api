@@ -8,6 +8,7 @@
   core_unix
   core_unix.filename_unix
   async
+  cohttp-async
   yojson
   uri
   hl-copy-api
@@ -15,6 +16,8 @@
   hl-copy-api-types
   hl-copy-core
   hl-protocol
-  hl-client)
+  hl-client
+  hl-sim
+  exchange-core-engine)
  (preprocess
   (pps ppx_jane)))
