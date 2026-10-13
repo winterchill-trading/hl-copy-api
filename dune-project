@@ -53,4 +53,5 @@
   hl-copy-api-types
   market-data
   venue-net
-  (hl-sim :with-test)))
+  (hl-sim :with-test)
+  (hl-leaderboard :with-test)))
