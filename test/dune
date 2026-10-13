@@ -22,6 +22,8 @@
   hl-client
   hl-sim
   exchange-core-engine
-  hl-leaderboard)
+  hl-leaderboard
+  venue-net
+  cohttp)
  (preprocess
   (pps ppx_jane)))
