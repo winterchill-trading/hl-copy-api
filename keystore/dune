@@ -1,0 +1,6 @@
+(library
+ (name hl_copy_keystore)
+ (public_name hl-copy-keystore)
+ (libraries core core_unix cryptokit hl-protocol)
+ (preprocess
+  (pps ppx_jane)))
