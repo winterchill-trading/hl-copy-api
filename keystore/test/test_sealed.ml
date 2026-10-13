@@ -74,3 +74,10 @@ let%test_unit "open_ inverts seal" =
         (Sealed.open_ key ~aad (Sealed.seal ~salt key ~aad plaintext))
         ~expect:(Ok plaintext))
 ;;
+
+let%expect_test "derived keys differ by label and from the sealing subkeys" =
+  let a = Sealed.Master_key.derive key ~label:"session" in
+  let b = Sealed.Master_key.derive key ~label:"other" in
+  print_s [%sexp (String.length a : int), (String.equal a b : bool)];
+  [%expect {| (32 false) |}]
+;;

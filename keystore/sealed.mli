@@ -31,6 +31,11 @@ module Master_key : sig
 
   (** Reads [var] (default [HL_COPY_MASTER_KEY]). *)
   val of_env : ?var:string -> unit -> t Or_error.t
+
+  (** A 32-byte key for another purpose (e.g. signing session tokens),
+      [HMAC-SHA256(master, "hl-copy-keystore v1 " ^ label)]; independent of the sealing
+      subkeys. *)
+  val derive : t -> label:string -> string
 end
 
 (** Random bytes from the operating system's generator. *)

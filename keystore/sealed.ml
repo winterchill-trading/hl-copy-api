@@ -16,6 +16,7 @@ module Master_key = struct
   type t =
     { enc : string
     ; mac : string
+    ; master : string
     }
 
   let sexp_of_t _ = Sexp.Atom "<master key>"
@@ -26,6 +27,7 @@ module Master_key = struct
       Ok
         { enc = hmac ~key "hl-copy-keystore v1 encryption"
         ; mac = hmac ~key "hl-copy-keystore v1 authentication"
+        ; master = key
         }
     | Ok _ | Error _ ->
       Or_error.error_string "master key must be 64 hex digits (32 bytes)"
@@ -36,6 +38,8 @@ module Master_key = struct
     | None -> Or_error.errorf "%s is not set" var
     | Some hex -> Or_error.tag (of_hex hex) ~tag:var
   ;;
+
+  let derive t ~label = hmac ~key:t.master ("hl-copy-keystore v1 " ^ label)
 end
 
 let random_bytes n = Cryptokit.Random.string Cryptokit.Random.secure_rng n
