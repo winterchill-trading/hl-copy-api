@@ -32,3 +32,9 @@ module Rate_limiter = Rate_limiter
 
 (** Prometheus text metrics. *)
 module Metrics = Metrics
+
+(** Messages pushed on [/ws]. *)
+module Ws_push = Ws_push
+
+(** Routes, CORS, rate limiting, logging, metrics and the websocket. *)
+module Server = Server

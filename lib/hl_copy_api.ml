@@ -9,3 +9,5 @@ module Leaders = Leaders
 module Engine_status = Engine_status
 module Rate_limiter = Rate_limiter
 module Metrics = Metrics
+module Ws_push = Ws_push
+module Server = Server
