@@ -383,7 +383,9 @@ let ws_upgrade t req ~address =
         in
         let%bind () = send_me () in
         don't_wait_for (stream_fills t client);
+        (* [every'] would also run at once; the first [me] was just sent. *)
         Clock_ns.every'
+          ~start:(Clock_ns.after t.config.ws_status_interval)
           ~stop:(Pipe.closed outgoing)
           ~continue_on_error:false
           t.config.ws_status_interval
