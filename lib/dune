@@ -18,7 +18,8 @@
   hl-client
   hl-copy-core
   hl-copy-api-types
-  market-data)
+  market-data
+  pg-async)
  (preprocess
   (pps ppx_jane ppx_yojson_conv)))
 
