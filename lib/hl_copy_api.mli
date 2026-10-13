@@ -8,3 +8,9 @@ module Session = Session
 
 (** Single-use login challenges in the Sign-In with Ethereum layout. *)
 module Challenge = Challenge
+
+(** The exchange approvals go to; mainnet is refused. *)
+module Venue = Venue
+
+(** [approveAgent] and [approveBuilderFee]: offers, signer checks, submission. *)
+module Approvals = Approvals
