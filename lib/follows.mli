@@ -14,20 +14,7 @@
 
 open! Core
 open Hl_protocol
-
-module Record : sig
-  type t =
-    { id : string
-    ; follower : Address.t
-    ; leader : Address.t
-    ; scale : Api_types.Scale_mode.t
-    ; caps : Api_types.Caps.t
-    ; state : Api_types.Follow_state.t
-    ; created_ms : int
-    ; updated_ms : int
-    }
-  [@@deriving sexp, compare, equal]
-end
+module Record = Follow_record
 
 type t
 

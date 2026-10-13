@@ -1,20 +1,7 @@
 open! Core
 open Hl_protocol
 module Follower_config = Hl_copy_core.Follower_config
-
-module Record = struct
-  type t =
-    { id : string
-    ; follower : Address.t
-    ; leader : Address.t
-    ; scale : Api_types.Scale_mode.t
-    ; caps : Api_types.Caps.t
-    ; state : Api_types.Follow_state.t
-    ; created_ms : int
-    ; updated_ms : int
-    }
-  [@@deriving sexp, compare, equal]
-end
+module Record = Follow_record
 
 type t =
   { config_dir : string
@@ -30,10 +17,7 @@ let create ~config_dir ~state_dir =
 ;;
 
 let config_dir t = t.config_dir
-
-let id ~follower ~leader =
-  sprintf "%s-%s" (Address.to_string follower) (Address.to_string leader)
-;;
+let id = Follow_record.id
 
 (* The web form sends USD amounts as floats (see Api_types); this is the one place they
    become fixed-point. [of_float] raises on NaN, infinity and out-of-range input, which
@@ -148,13 +132,7 @@ let all t =
     |> List.filter_map ~f:(String.chop_suffix ~suffix:".sexp")
     |> List.filter ~f:(fun id -> not (String.is_prefix id ~prefix:"."))
     |> List.filter_map ~f:(load t)
-    |> List.sort ~compare:(fun (a : Record.t) b ->
-      Comparable.lexicographic
-        [ (fun (a : Record.t) b -> Int.compare a.created_ms b.created_ms)
-        ; (fun a b -> String.compare a.id b.id)
-        ]
-        a
-        b)
+    |> List.sort ~compare:Record.compare_by_age
 ;;
 
 let list t ~follower = List.filter (all t) ~f:(fun r -> Address.equal r.follower follower)

@@ -5,6 +5,7 @@ module Challenge = Challenge
 module Venue = Venue
 module Approvals = Approvals
 module Agents = Agents
+module Follow_record = Follow_record
 module Follows = Follows
 module Leaders = Leaders
 module Engine_status = Engine_status
