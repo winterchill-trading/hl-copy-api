@@ -22,7 +22,6 @@ depends: [
   "yojson"
   "ppx_jane"
   "ppx_yojson_conv"
-  "hl-copy-keystore" {= version}
   "hl-protocol"
   "hl-client"
   "hl-copy-core"

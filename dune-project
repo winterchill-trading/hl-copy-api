@@ -14,18 +14,6 @@
  (github winterchill-trading/hl-copy-api))
 
 (package
- (name hl-copy-keystore)
- (synopsis "Encrypted agent key files shared by the copy-trading API and engine")
- (depends
-  (ocaml
-   (>= 5.2))
-  dune
-  core
-  core_unix
-  cryptokit
-  ppx_jane))
-
-(package
  (name hl-copy-api)
  (synopsis
   "HTTP API of the Hyperliquid copy-trading platform: wallet login, agent keys, follows")
@@ -45,8 +33,6 @@
   yojson
   ppx_jane
   ppx_yojson_conv
-  (hl-copy-keystore
-   (= :version))
   hl-protocol
   hl-client
   hl-copy-core
