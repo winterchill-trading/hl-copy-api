@@ -1,0 +1,20 @@
+(library
+ (name hl_copy_api_test)
+ (inline_tests
+  (flags
+   (:standard -source-tree-root .)))
+ (libraries
+  core
+  core_unix
+  core_unix.filename_unix
+  async
+  yojson
+  uri
+  hl-copy-api
+  hl-copy-keystore
+  hl-copy-api-types
+  hl-copy-core
+  hl-protocol
+  hl-client)
+ (preprocess
+  (pps ppx_jane)))
