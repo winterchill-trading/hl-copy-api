@@ -54,3 +54,33 @@ let%expect_test "a different message recovers to a different address" =
        : bool Or_error.t)];
   [%expect {| (Ok false) |}]
 ;;
+
+let%expect_test "typed data as the browser gets it signs like the approval action" =
+  let offer =
+    { Api_types.Approve_agent.hyperliquid_chain = Testnet
+    ; signature_chain_id = "0x66eee"
+    ; agent_address = Api_types.Address.of_string ("0x" ^ String.make 40 '2')
+    ; agent_name = "hl-copy valid_until 1807343157720"
+    ; nonce = 1760257800000.
+    }
+  in
+  let typed = Api_types.Approve_agent.typed_data offer in
+  let action = Approvals.approve_agent_action offer in
+  let via_json = Wallet_signature.typed_data_digest typed |> Or_error.ok_exn in
+  print_s
+    [%message
+      ""
+        ~same_digest:
+          (String.equal via_json (Hl_client.Signing.user_action_digest action) : bool)
+        ~same_signature:
+          (String.equal
+             (Wallet_signature.sign_typed_data key typed |> Or_error.ok_exn)
+             (Wallet_signature.to_hex (Hl_client.Signing.sign_user_action key action))
+           : bool)];
+  [%expect {| ((same_digest true) (same_signature true)) |}];
+  let mainnet =
+    Api_types.Approve_agent.typed_data { offer with hyperliquid_chain = Mainnet }
+  in
+  print_s [%sexp (Wallet_signature.typed_data_digest mainnet : string Or_error.t)];
+  [%expect {| (Error ("typed data" (Failure "refusing to sign for \"Mainnet\""))) |}]
+;;
