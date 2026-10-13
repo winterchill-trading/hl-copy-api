@@ -19,7 +19,6 @@
   hl-client
   hl-copy-core
   hl-copy-api-types
-  market-data
-  venue-net)
+  market-data)
  (preprocess
   (pps ppx_jane ppx_yojson_conv)))

@@ -52,6 +52,6 @@
   hl-copy-core
   hl-copy-api-types
   market-data
-  venue-net
+  (venue-net :with-test)
   (hl-sim :with-test)
   (hl-leaderboard :with-test)))
