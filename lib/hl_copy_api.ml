@@ -7,3 +7,5 @@ module Agents = Agents
 module Follows = Follows
 module Leaders = Leaders
 module Engine_status = Engine_status
+module Rate_limiter = Rate_limiter
+module Metrics = Metrics

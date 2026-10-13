@@ -26,3 +26,9 @@ module Leaders = Leaders
 
 (** The engine's [/status], decoded leniently. *)
 module Engine_status = Engine_status
+
+(** Per-client token buckets. *)
+module Rate_limiter = Rate_limiter
+
+(** Prometheus text metrics. *)
+module Metrics = Metrics
