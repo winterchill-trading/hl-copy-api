@@ -8,20 +8,21 @@
 # Point the API at hl-sim (or testnet) only; the API refuses mainnet anyway.
 set -euo pipefail
 
-PYTHON=${PYTHON:-python3}
+# PYTHON may be a command with arguments, e.g. "uv run -q --with eth-account python3".
+read -r -a python <<<"${PYTHON:-python3}"
 API=${API:-http://localhost:8080}
 LEADER=${LEADER:-0x87f9cd15f5050a9283b8896300f7c8cf69ece2cf}
 # A fixed throwaway key: only ever used against the simulator.
 KEY=${KEY:-0x$(printf '%064x' 4660)}
 
-json() { "$PYTHON" -I -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
+json() { "${python[@]}" -I -c "import json,sys; d=json.load(sys.stdin); print(d$1)"; }
 
-ADDR=$("$PYTHON" -I -c "from eth_account import Account; print(Account.from_key('$KEY').address.lower())")
+ADDR=$("${python[@]}" -I -c "from eth_account import Account; print(Account.from_key('$KEY').address.lower())")
 echo "wallet $ADDR"
 
 CHALLENGE=$(curl -sf -X POST "$API/auth/challenge" -H 'content-type: application/json' \
   -d "{\"address\":\"$ADDR\"}")
-SIGNATURE=$("$PYTHON" -I -c "
+SIGNATURE=$("${python[@]}" -I -c "
 import json, sys
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -34,7 +35,7 @@ TOKEN=$(curl -sf -X POST "$API/auth/verify" -H 'content-type: application/json' 
 echo "logged in"
 
 OFFER=$(curl -sf -X POST "$API/agent/new" -H "authorization: Bearer $TOKEN")
-AGENT_SIGNATURE=$("$PYTHON" -I -c "
+AGENT_SIGNATURE=$("${python[@]}" -I -c "
 import json, sys
 from eth_account import Account
 from eth_account.messages import encode_typed_data
