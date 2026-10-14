@@ -25,23 +25,29 @@ end
 
 type t =
   { key_store : Key_store.t
+  ; store : Store.t
   ; venue : Venue.t
   ; builder : Builder.t option
   ; agent_validity : Time_ns.Span.t
   ; pending : (Pending.t * string) Address.Table.t (** with the private key, hex *)
   ; builder_offers : Api_types.Approve_builder_fee.t Address.Table.t
-  ; builder_approved : Address.Hash_set.t
   ; mutable last_nonce : int
   }
 
-let create ?(agent_validity = Approvals.default_agent_validity) ?builder ~key_store venue =
+let create
+  ?(agent_validity = Approvals.default_agent_validity)
+  ?builder
+  ~key_store
+  ~store
+  venue
+  =
   { key_store
+  ; store
   ; venue
   ; builder
   ; agent_validity
   ; pending = Address.Table.create ()
   ; builder_offers = Address.Table.create ()
-  ; builder_approved = Address.Hash_set.create ()
   ; last_nonce = 0
   }
 ;;
@@ -139,6 +145,20 @@ let check_matches
           (signed : Api_types.Approve_agent.t)]
 ;;
 
+(* Writes the account's key file from the store (the sealed entry as stored), or removes
+   it when the store has no agent for the account. *)
+let sync_key_file t ~account =
+  let open Deferred.Or_error.Let_syntax in
+  let%bind stored = Store.find_agent t.store ~account in
+  let%bind on_disk = Deferred.return (Key_store.find t.key_store ~account) in
+  Deferred.return
+    (match stored, on_disk with
+     | None, None -> Ok ()
+     | None, Some _ -> Key_store.revoke t.key_store ~account
+     | Some entry, Some file when Key_store.Entry.equal entry file -> Ok ()
+     | Some entry, (Some _ | None) -> Key_files.write t.key_store ~account entry)
+;;
+
 let approve_agent t ~owner ?signed ~signature () =
   let open Deferred.Or_error.Let_syntax in
   let%bind (p : Pending.t), private_key =
@@ -158,7 +178,7 @@ let approve_agent t ~owner ?signed ~signature () =
   let action = Approvals.approve_agent_action signed in
   let%bind signature = Deferred.return (Approvals.verify action ~signature ~owner) in
   let%bind () = Approvals.submit t.venue ~owner action signature in
-  let%map entry =
+  let%bind entry =
     Deferred.return
       (Key_store.put
          t.key_store
@@ -169,6 +189,17 @@ let approve_agent t ~owner ?signed ~signature () =
          ~valid_until:p.valid_until
          ~private_key
          ())
+  in
+  (* The exchange has approved the agent and the key file is written; the store is what
+     survives a restart. If it refuses the write, the file goes back to what the store
+     says, so the two never disagree for longer than this call. *)
+  let%map () =
+    match%bind.Deferred Store.put_agent t.store ~account:owner entry with
+    | Ok () -> return ()
+    | Error e ->
+      let%bind.Deferred restored = sync_key_file t ~account:owner in
+      Deferred.return
+        (Error (Error.of_list (e :: Option.to_list (Result.error restored))))
   in
   Hashtbl.remove t.pending owner;
   entry
@@ -192,21 +223,54 @@ let approve_builder_fee t ~owner ?signed ~signature () =
   in
   let action = Approvals.approve_builder_fee_action signed in
   let%bind signature = Deferred.return (Approvals.verify action ~signature ~owner) in
-  let%map () = Approvals.submit t.venue ~owner action signature in
+  let%bind () = Approvals.submit t.venue ~owner action signature in
   Hashtbl.remove t.builder_offers owner;
-  Hash_set.add t.builder_approved owner
+  match t.builder with
+  | None -> return ()
+  | Some b ->
+    Store.approve_builder_fee
+      t.store
+      ~account:owner
+      ~builder:b.address
+      ~at:(Time_ns.now ())
 ;;
 
-let active t ~owner =
-  Key_store.find t.key_store ~account:owner |> Result.ok |> Option.join
-;;
-
+let active t ~owner = Store.find_agent t.store ~account:owner
 let pending t ~owner = Option.map (Hashtbl.find t.pending owner) ~f:fst
 
+(* The store first: once the row is gone a restart cannot bring the key back. *)
 let revoke t ~owner =
-  match active t ~owner with
-  | None -> Or_error.error_string "no active agent"
-  | Some _ -> Key_store.revoke t.key_store ~account:owner
+  let open Deferred.Or_error.Let_syntax in
+  match%bind active t ~owner with
+  | None -> Deferred.Or_error.error_string "no active agent"
+  | Some _ ->
+    let%bind () = Store.delete_agent t.store ~account:owner in
+    Deferred.return (Key_store.revoke t.key_store ~account:owner)
 ;;
 
-let builder_fee_approved t ~owner = Hash_set.mem t.builder_approved owner
+let builder_fee_approved t ~owner =
+  match t.builder with
+  | None -> Deferred.Or_error.return false
+  | Some b -> Store.builder_fee_approved t.store ~account:owner ~builder:b.address
+;;
+
+let sync_key_files t =
+  let open Deferred.Or_error.Let_syntax in
+  let%bind stored = Store.agents t.store in
+  let on_disk = List.map (Key_store.list t.key_store) ~f:fst in
+  let accounts =
+    List.dedup_and_sort ~compare:Address.compare (List.map stored ~f:fst @ on_disk)
+  in
+  Deferred.Or_error.List.iter ~how:`Sequential accounts ~f:(fun account ->
+    sync_key_file t ~account)
+;;
+
+let import_key_files t =
+  Deferred.Or_error.List.fold
+    (Key_store.list t.key_store)
+    ~init:0
+    ~f:(fun n (account, entry) ->
+      Deferred.Or_error.map
+        (Store.add_agent_if_absent t.store ~account entry)
+        ~f:(fun added -> if added then n + 1 else n))
+;;

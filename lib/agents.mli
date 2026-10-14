@@ -9,8 +9,10 @@
 
     [approve_agent] checks the wallet's signature, forwards it to the exchange and only
     then seals the key into the shared {!Hl_copy_core.Key_store}, replacing the account's
-    previous agent; that file is what the engine trades with. Every nonce handed to one
-    wallet is distinct. *)
+    previous agent; that file is what the engine trades with. The sealed entry (never the
+    plaintext key) and builder fee approvals are kept in the {!Store}, which is the record
+    of truth: {!sync_key_files} rewrites the key files from it at startup. Every nonce
+    handed to one wallet is distinct. *)
 
 open! Core
 open Async
@@ -42,6 +44,7 @@ val create
   :  ?agent_validity:Time_ns.Span.t (** default {!Approvals.default_agent_validity} *)
   -> ?builder:Builder.t
   -> key_store:Hl_copy_core.Key_store.t
+  -> store:Store.t
   -> Venue.t
   -> t
 
@@ -72,14 +75,26 @@ val approve_builder_fee
   -> unit
   -> unit Or_error.t Deferred.t
 
-(** Deletes the account's key file; the engine stops trading the account. The exchange
-    keeps the approval until another agent is approved under the same name or it expires. *)
-val revoke : t -> owner:Address.t -> unit Or_error.t
+(** Deletes the account's agent from the store and its key file; the engine stops trading
+    the account. The exchange keeps the approval until another agent is approved under the
+    same name or it expires. *)
+val revoke : t -> owner:Address.t -> unit Or_error.t Deferred.t
 
-(** The approved agent, from the key store. *)
-val active : t -> owner:Address.t -> Hl_copy_core.Key_store.Entry.t option
+(** The approved agent, from the store. *)
+val active
+  :  t
+  -> owner:Address.t
+  -> Hl_copy_core.Key_store.Entry.t option Or_error.t Deferred.t
 
 val pending : t -> owner:Address.t -> Pending.t option
 
-(** Builder fee approved through this process (kept in memory). *)
-val builder_fee_approved : t -> owner:Address.t -> bool
+(** The account approved the configured builder's fee (always [false] without a builder). *)
+val builder_fee_approved : t -> owner:Address.t -> bool Or_error.t Deferred.t
+
+(** Makes the key files match the store: writes each stored agent whose file is missing or
+    different and deletes the files of accounts the store has no agent for. *)
+val sync_key_files : t -> unit Or_error.t Deferred.t
+
+(** Copies key files written by an older version (which kept no other record of them) into
+    the store; agents already stored win. Returns how many were added. *)
+val import_key_files : t -> int Or_error.t Deferred.t

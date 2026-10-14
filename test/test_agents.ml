@@ -8,11 +8,12 @@ module Signing = Hl_client.Signing
 let master = Key_store.Master_key.of_hex (String.make 64 'd') |> Or_error.ok_exn
 let builder = Address.of_string "0x53aa631b2d8d1fb87aa4dcff435c2dc6e62dbe27"
 
-let setup (sim : Sim.t) dir =
+let setup ?(store = Store_memory.store (Store_memory.create ())) (sim : Sim.t) dir =
   let venue = Venue.create ~base_url:sim.base_url () |> Or_error.ok_exn in
   Agents.create
     ~builder:{ address = builder; max_fee_tenths_bp = 10 }
     ~key_store:(Key_store.create ~master_key:master ~state_dir:dir () |> Or_error.ok_exn)
+    ~store
     venue
 ;;
 
@@ -86,6 +87,7 @@ let%expect_test "offer, sign, approve on the simulator, rotate" =
           ()
       in
       print_result r;
+      let%bind approved = Agents.builder_fee_approved agents ~owner >>| Or_error.ok_exn in
       print_s
         [%sexp
           (Hl_sim.Agents.max_builder_fee
@@ -93,7 +95,7 @@ let%expect_test "offer, sign, approve on the simulator, rotate" =
              ~user:owner
              ~builder
            : int)
-          , (Agents.builder_fee_approved agents ~owner : bool)];
+          , (approved : bool)];
       [%expect {|
         (Ok ok)
         (10 true)
@@ -128,9 +130,10 @@ let%expect_test "offer, sign, approve on the simulator, rotate" =
           ()
       in
       print_result r;
+      let%bind active = Agents.active agents ~owner >>| Or_error.ok_exn in
       print_s
         [%sexp
-          (Option.map (Agents.active agents ~owner) ~f:(fun e ->
+          (Option.map active ~f:(fun e ->
              Api_types.Address.equal
                (Approvals.address_to_api e.agent_address)
                offer2.approve_agent.agent_address)
@@ -139,8 +142,10 @@ let%expect_test "offer, sign, approve on the simulator, rotate" =
         (Ok ok)
         (true)
         |}];
-      print_s [%sexp (Agents.revoke agents ~owner : unit Or_error.t)];
-      print_s [%sexp (Option.is_some (Agents.active agents ~owner) : bool)];
+      let%bind revoked = Agents.revoke agents ~owner in
+      print_s [%sexp (revoked : unit Or_error.t)];
+      let%bind active = Agents.active agents ~owner >>| Or_error.ok_exn in
+      print_s [%sexp (Option.is_some active : bool)];
       [%expect {|
         (Ok ())
         false
