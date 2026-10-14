@@ -8,15 +8,15 @@ module C = Api_client
 let leader = Address.of_string "0x87f9cd15f5050a9283b8896300f7c8cf69ece2cf"
 
 let%expect_test "mainnet exchange URL is refused at startup" =
-  print_s
-    [%sexp
-      (Server.create
-         { Server.Config.default with
-           exchange_url = Uri.of_string "https://api.hyperliquid.xyz"
-         }
-         ~master_key:Flow.master
-       |> Result.is_error
-       : bool)];
+  let%bind r =
+    Server.create
+      { Server.Config.default with
+        exchange_url = Uri.of_string "https://api.hyperliquid.xyz"
+      }
+      ~master_key:Flow.master
+      ~store:(Store_memory.store (Store_memory.create ()))
+  in
+  print_s [%sexp (Result.is_error r : bool)];
   [%expect {| true |}];
   return ()
 ;;

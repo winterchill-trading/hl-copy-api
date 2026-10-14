@@ -25,7 +25,7 @@ GET    /ws?token=<token>               websocket, see {!Api_types.Ws_push}
 
     Errors are {!Api_types.Api_error} with 400 (bad body), 401 (no or bad session), 404,
     409 (state conflict), 413 (body over 64 KiB), 429 (rate limited), 502 (exchange or
-    leaderboard failure) or 503 (no leaderboard configured).
+    leaderboard failure) or 503 (no leaderboard configured, or the store failed).
 
     Every response carries CORS headers for the configured origins, and [OPTIONS] answers
     preflight requests. Each request is logged (method, route, status, milliseconds,
@@ -40,7 +40,8 @@ module Config : sig
     ; leaderboard_url : Uri.t option (** [hl-leaderboard serve] *)
     ; engine_url : Uri.t option (** hl-copy-engine, for [/status] *)
     ; state_dir : string
-    (** [agents/] ({!Hl_copy_core.Key_store} files) and [follows/] (records) *)
+    (** [agents/], the {!Hl_copy_core.Key_store} files the engine reads (written from the
+        store); an older version's [follows/] records are imported once *)
     ; config_dir : string (** follower configs the engine watches *)
     ; public_url : Uri.t (** this API as browsers reach it; the sign-in domain and URI *)
     ; allowed_origins : string list (** CORS; ["*"] allows any origin *)
@@ -61,11 +62,19 @@ end
 
 type t
 
-val create : Config.t -> master_key:Hl_copy_core.Key_store.Master_key.t -> t Or_error.t
+(** Imports an older version's state files into [store] (once per state directory), then
+    makes the engine's files (key files, follower configs) match the store. *)
+val create
+  :  Config.t
+  -> master_key:Hl_copy_core.Key_store.Master_key.t
+  -> store:Store.t
+  -> t Or_error.t Deferred.t
+
 val config : t -> Config.t
 val metrics : t -> Metrics.t
 val agents : t -> Agents.t
 val follows : t -> Follows.t
+val store : t -> Store.t
 
 (** [port] 0 picks a free port. *)
 val start : t -> port:int -> (Socket.Address.Inet.t, int) Cohttp_async.Server.t Deferred.t

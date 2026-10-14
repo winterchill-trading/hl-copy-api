@@ -11,7 +11,7 @@ let master =
 
 let builder = Address.of_string "0x53aa631b2d8d1fb87aa4dcff435c2dc6e62dbe27"
 
-let with_api ?(configure = Fn.id) f =
+let with_api ?(configure = Fn.id) ?store f =
   Sim.with_sim (fun sim ->
     Sim.with_dir (fun dir ->
       let config =
@@ -24,7 +24,15 @@ let with_api ?(configure = Fn.id) f =
           ; ws_status_interval = Time_ns.Span.of_min 10.
           }
       in
-      let api = Server.create config ~master_key:master |> Or_error.ok_exn in
+      let%bind api =
+        Server.create
+          config
+          ~master_key:master
+          ~store:
+            (Option.value_or_thunk store ~default:(fun () ->
+               Store_memory.store (Store_memory.create ())))
+        >>| Or_error.ok_exn
+      in
       let%bind http = Server.start api ~port:0 in
       let client = C.create ~port:(Cohttp_async.Server.listening_on http) in
       Monitor.protect

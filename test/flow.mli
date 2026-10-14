@@ -8,6 +8,7 @@ val master : Hl_copy_core.Key_store.Master_key.t
 
 val with_api
   :  ?configure:(Hl_copy_api.Server.Config.t -> Hl_copy_api.Server.Config.t)
+  -> ?store:Hl_copy_api.Store.t (** default a fresh [Store_memory] *)
   -> (sim:Sim.t
       -> api:Hl_copy_api.Server.t
       -> client:Api_client.t

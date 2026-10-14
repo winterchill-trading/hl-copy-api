@@ -94,6 +94,7 @@ end
 
 type t =
   { config : Config.t
+  ; store : Store.t
   ; info_config : Hl_client.Config.t
   ; session : Session.t
   ; challenges : Challenge.t
@@ -112,11 +113,37 @@ let config t = t.config
 let metrics t = t.metrics
 let agents t = t.agents
 let follows t = t.follows
+let store t = t.store
 
-let create (config : Config.t) ~master_key =
-  let open Or_error.Let_syntax in
-  let%bind venue = Venue.create ~base_url:config.exchange_url () in
-  let%bind key_store = Key_store.create ~master_key ~state_dir:config.state_dir () in
+(* Older versions kept follow records as files under [<state_dir>/follows] and agents only
+   as key files. They are copied into the store once per state directory; the marker keeps
+   a later start from bringing back an agent revoked since. *)
+let import_marker = ".imported-to-store"
+
+let import_legacy_state (config : Config.t) ~agents ~follows =
+  let open Deferred.Or_error.Let_syntax in
+  let marker = config.state_dir ^/ import_marker in
+  match Sys_unix.file_exists marker with
+  | `Yes -> return ()
+  | `No | `Unknown ->
+    let%bind records =
+      Follows.import_records follows ~dir:(config.state_dir ^/ "follows")
+    in
+    let%bind keys = Agents.import_key_files agents in
+    Log.Global.info_s
+      [%message "imported state files into the store" (records : int) (keys : int)];
+    Deferred.return
+      (Or_error.try_with (fun () ->
+         Core_unix.mkdir_p config.state_dir;
+         Out_channel.write_all marker ~data:"follow records and key files imported\n"))
+;;
+
+let create (config : Config.t) ~master_key ~store =
+  let open Deferred.Or_error.Let_syntax in
+  let%bind venue = Deferred.return (Venue.create ~base_url:config.exchange_url ()) in
+  let%bind key_store =
+    Deferred.return (Key_store.create ~master_key ~state_dir:config.state_dir ())
+  in
   let host = Option.value (Uri.host config.public_url) ~default:"localhost" in
   let domain =
     match Uri.port config.public_url with
@@ -125,6 +152,7 @@ let create (config : Config.t) ~master_key =
   in
   let t =
     { config
+    ; store
     ; info_config = Venue.config venue
     ; session =
         Session.create
@@ -137,11 +165,8 @@ let create (config : Config.t) ~master_key =
           ~uri:(Uri.to_string config.public_url)
           ~chain_id:(Int.of_string (Venue.signature_chain_id venue))
           ()
-    ; agents = Agents.create ?builder:config.builder ~key_store venue
-    ; follows =
-        Follows.create
-          ~config_dir:config.config_dir
-          ~state_dir:(config.state_dir ^/ "follows")
+    ; agents = Agents.create ?builder:config.builder ~key_store ~store venue
+    ; follows = Follows.create ~store ~config_dir:config.config_dir
     ; leaders =
         Option.map config.leaderboard_url ~f:(fun base_url -> Leaders.create ~base_url ())
     ; metrics = Metrics.create ()
@@ -162,7 +187,12 @@ let create (config : Config.t) ~master_key =
     Float.of_int (Challenge.outstanding t.challenges));
   Metrics.gauge t.metrics "ws_clients" (fun () ->
     Float.of_int (Hashtbl.length t.ws_clients));
-  return t
+  (* The store is the record of truth; the engine's files are made to match it before the
+     first request. *)
+  let%bind () = import_legacy_state config ~agents:t.agents ~follows:t.follows in
+  let%bind () = Agents.sync_key_files t.agents in
+  let%map () = Follows.sync_configs t.follows in
+  t
 ;;
 
 (* Replies *)
@@ -192,6 +222,16 @@ let fail status message = raise (Reply_error (status, message))
 let ok_or ?(status = `Bad_request) = function
   | Ok x -> x
   | Error e -> fail status (Error.to_string_hum e)
+;;
+
+(* A store failure is logged in full and answered with 503 and no detail: database errors
+   name tables and constraints, which clients have no use for. *)
+let stored d =
+  match%map d with
+  | Ok x -> x
+  | Error e ->
+    Log.Global.error_s [%message "store failed" (e : Error.t)];
+    fail `Service_unavailable "storage unavailable"
 ;;
 
 let max_body = 65_536
@@ -237,18 +277,19 @@ let ms_now () = Time_ns.to_int_ns_since_epoch (Time_ns.now ()) / 1_000_000
 
 (* Views *)
 
-let agent_status t ~owner : Api_types.Agent_status.t option =
+let agent_status t ~owner : Api_types.Agent_status.t option Deferred.t =
+  let%bind approved = stored (Agents.builder_fee_approved t.agents ~owner) in
+  let%map active = stored (Agents.active t.agents ~owner) in
   let builder_fee =
     match t.config.builder with
-    | Some b when Agents.builder_fee_approved t.agents ~owner ->
-      Some (Builder_fee.percent_of_tenths_bp b.max_fee_tenths_bp)
+    | Some b when approved -> Some (Builder_fee.percent_of_tenths_bp b.max_fee_tenths_bp)
     | Some _ | None -> None
   in
   let ms time = Float.of_int (Time_ns.to_int_ns_since_epoch time / 1_000_000) in
-  match Agents.active t.agents ~owner, Agents.pending t.agents ~owner with
+  match active, Agents.pending t.agents ~owner with
   | Some (e : Key_store.Entry.t), _ ->
     Some
-      { agent_address = Approvals.address_to_api e.agent_address
+      { Api_types.Agent_status.agent_address = Approvals.address_to_api e.agent_address
       ; agent_name = e.agent_name
       ; approved = true
       ; valid_until = Option.map e.valid_until ~f:ms
@@ -256,7 +297,7 @@ let agent_status t ~owner : Api_types.Agent_status.t option =
       }
   | None, Some (p : Agents.Pending.t) ->
     Some
-      { agent_address = Approvals.address_to_api p.agent_address
+      { Api_types.Agent_status.agent_address = Approvals.address_to_api p.agent_address
       ; agent_name = p.agent_name
       ; approved = false
       ; valid_until = Some (ms p.valid_until)
@@ -282,19 +323,19 @@ let engine_status t = Engine_status.fetch t.config.engine_url
 
 let me t ~address =
   let%bind engine = engine_status t in
+  let%bind records = stored (Follows.list t.follows ~follower:address) in
+  let%bind agent = agent_status t ~owner:address in
   let%map state = Hl_client.Info.clearinghouse_state ~user:address t.info_config in
   let account_value =
     match state with
     | Ok s -> Float.of_string (Usd.to_string s.margin_summary.account_value)
     | Error _ -> 0.
   in
-  let follows =
-    List.map (Follows.list t.follows ~follower:address) ~f:(follow_view engine)
-  in
+  let follows = List.map records ~f:(follow_view engine) in
   { Api_types.Me.address = Approvals.address_to_api address
   ; account_value
   ; total_pnl = List.sum (module Float) follows ~f:(fun f -> f.pnl)
-  ; agent = agent_status t ~owner:address
+  ; agent
   ; follows
   }
 ;;
@@ -422,17 +463,22 @@ let parse_address s =
   | None -> fail `Bad_request "not an address (0x followed by 40 hex digits)"
 ;;
 
-let follower_count t leader =
-  List.count (Follows.all t.follows) ~f:(fun r ->
-    Address.equal r.leader leader
-    &&
-    match r.state with
-    | Running | Paused -> true
-    | Stopped -> false)
+(* Copiers per leader, counted once per request from every running or paused follow. *)
+let follower_counts t =
+  let%map records = stored (Follows.all t.follows) in
+  let counts =
+    List.filter_map records ~f:(fun r ->
+      match r.state with
+      | Running | Paused -> Some r.leader
+      | Stopped -> None)
+    |> List.fold ~init:Address.Map.empty ~f:(fun m leader ->
+      Map.update m leader ~f:(fun n -> 1 + Option.value n ~default:0))
+  in
+  fun leader -> Option.value (Map.find counts leader) ~default:0
 ;;
 
 let find_follow t ~follower id =
-  match Follows.find t.follows ~follower id with
+  match%map stored (Follows.find t.follows ~follower id) with
   | Some r -> r
   | None -> fail `Not_found "no such follow"
 ;;
@@ -444,8 +490,8 @@ let follow_reply ?(status = `OK) t r =
 ;;
 
 let update_follow t ~follower id ?scale ?caps ?state () =
-  let r = find_follow t ~follower id in
-  match
+  let%bind r = find_follow t ~follower id in
+  match%bind
     Follows.update t.follows ~follower r.id ?scale ?caps ?state ~now_ms:(ms_now ()) ()
   with
   | Ok r -> follow_reply t r
@@ -470,7 +516,7 @@ let offer_json (offer : Api_types.Agent_offer.t) =
 let route t ~body req ~meth ~path =
   let auth () = authenticate t req in
   let agent_status_reply owner =
-    match agent_status t ~owner with
+    match%map agent_status t ~owner with
     | Some s -> Reply.json (Api_types.Agent_status.yojson_of_t s)
     | None -> Reply.error `Not_found "no agent"
   in
@@ -530,7 +576,7 @@ let route t ~body req ~meth ~path =
         let owner = auth () in
         let%bind json = read_json body req in
         let r = decode Bodies.agent_approved_of_yojson json in
-        let%map result =
+        let%bind result =
           Agents.approve_agent
             t.agents
             ~owner
@@ -545,35 +591,40 @@ let route t ~body req ~meth ~path =
     ( "/agent/revoke"
     , fun () ->
         let owner = auth () in
-        Agents.revoke t.agents ~owner |> ok_or ~status:`Conflict;
+        let%bind revoked = Agents.revoke t.agents ~owner in
+        ok_or ~status:`Conflict revoked;
         (* Without an agent the engine cannot trade; pause the user's running follows so
            the dashboard says so. *)
-        List.iter (Follows.list t.follows ~follower:owner) ~f:(fun r ->
-          match r.state with
-          | Running ->
-            (match
-               Follows.update
-                 t.follows
-                 ~follower:owner
-                 r.id
-                 ~state:Paused
-                 ~now_ms:(ms_now ())
-                 ()
-             with
-             | Ok r -> follow_changed t r
-             | Error _ -> ())
-          | Paused | Stopped -> ());
-        return
-          (match agent_status t ~owner with
-           | Some s -> Reply.json (Api_types.Agent_status.yojson_of_t s)
-           | None -> Reply.json `Null) )
+        let%bind records = stored (Follows.list t.follows ~follower:owner) in
+        let%bind () =
+          Deferred.List.iter ~how:`Sequential records ~f:(fun r ->
+            match r.state with
+            | Running ->
+              (match%map
+                 Follows.update
+                   t.follows
+                   ~follower:owner
+                   r.id
+                   ~state:Paused
+                   ~now_ms:(ms_now ())
+                   ()
+               with
+               | Ok r -> follow_changed t r
+               | Error e ->
+                 Log.Global.error_s
+                   [%message "could not pause follow" ~id:r.id (e : Error.t)])
+            | Paused | Stopped -> return ())
+        in
+        (match%map agent_status t ~owner with
+         | Some s -> Reply.json (Api_types.Agent_status.yojson_of_t s)
+         | None -> Reply.json `Null) )
   | `POST, [ "builder-fee" ] ->
     ( "/builder-fee"
     , fun () ->
         let owner = auth () in
         let%bind json = read_json body req in
         let r = decode Bodies.builder_fee_of_yojson json in
-        let%map result =
+        let%bind result =
           Agents.approve_builder_fee
             t.agents
             ~owner
@@ -588,10 +639,11 @@ let route t ~body req ~meth ~path =
     ( "/follows"
     , fun () ->
         let follower = auth () in
+        let%bind records = stored (Follows.list t.follows ~follower) in
         let%map engine = engine_status t in
         Reply.json
           (`List
-            (List.map (Follows.list t.follows ~follower) ~f:(fun r ->
+            (List.map records ~f:(fun r ->
                Api_types.Follow.yojson_of_t (follow_view engine r)))) )
   | `POST, [ "follows" ] ->
     ( "/follows"
@@ -599,10 +651,10 @@ let route t ~body req ~meth ~path =
         let follower = auth () in
         let%bind json = read_json body req in
         let r = decode Api_types.Follow_request.t_of_yojson json in
-        if Option.is_none (Agents.active t.agents ~owner:follower)
-        then fail `Conflict "approve an agent before following";
+        let%bind active = stored (Agents.active t.agents ~owner:follower) in
+        if Option.is_none active then fail `Conflict "approve an agent before following";
         let leader = Approvals.address_of_api r.leader in
-        let record =
+        let%bind record =
           Follows.start
             t.follows
             ~follower
@@ -610,7 +662,7 @@ let route t ~body req ~meth ~path =
             ~scale:r.scale
             ~caps:r.caps
             ~now_ms:(ms_now ())
-          |> ok_or ~status:`Conflict
+          >>| ok_or ~status:`Conflict
         in
         Metrics.incr t.metrics "follows_started";
         follow_reply ~status:`Created t record )
@@ -618,7 +670,7 @@ let route t ~body req ~meth ~path =
     ( "/follows/:id"
     , fun () ->
         let follower = auth () in
-        let r = find_follow t ~follower id in
+        let%bind r = find_follow t ~follower id in
         let%map engine = engine_status t in
         Reply.json (Api_types.Follow.yojson_of_t (follow_view engine r)) )
   | `PATCH, [ "follows"; id ] ->
@@ -653,7 +705,8 @@ let route t ~body req ~meth ~path =
         (match t.leaders with
          | None -> fail `Service_unavailable "no leaderboard configured"
          | Some leaders ->
-           let%map r = Leaders.leaders leaders ~followers:(follower_count t) in
+           let%bind followers = follower_counts t in
+           let%map r = Leaders.leaders leaders ~followers in
            Reply.json
              (Api_types.Leaders_response.yojson_of_t (ok_or ~status:`Bad_gateway r))) )
   | `GET, [ "leaders"; address ] ->
@@ -663,7 +716,8 @@ let route t ~body req ~meth ~path =
         (match t.leaders with
          | None -> fail `Service_unavailable "no leaderboard configured"
          | Some leaders ->
-           let%map r = Leaders.leader leaders ~followers:(follower_count t) address in
+           let%bind followers = follower_counts t in
+           let%map r = Leaders.leader leaders ~followers address in
            (match ok_or ~status:`Bad_gateway r with
             | Some detail -> Reply.json (Api_types.Leader_detail.yojson_of_t detail)
             | None -> Reply.error `Not_found "unknown leader")) )

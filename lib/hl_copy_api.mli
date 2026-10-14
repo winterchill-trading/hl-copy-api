@@ -33,6 +33,9 @@ module Store_memory = Store_memory
 (** {!Store.S} on PostgreSQL. *)
 module Store_pg = Store_pg
 
+(** Stored agent entries written back as key store files. *)
+module Key_files = Key_files
+
 (** Follow records and the follower config files the engine watches. *)
 module Follows = Follows
 

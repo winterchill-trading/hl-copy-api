@@ -9,6 +9,7 @@ module Follow_record = Follow_record
 module Store = Store
 module Store_memory = Store_memory
 module Store_pg = Store_pg
+module Key_files = Key_files
 module Follows = Follows
 module Leaders = Leaders
 module Engine_status = Engine_status
