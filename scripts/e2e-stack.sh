@@ -196,7 +196,8 @@ wait_http hl-leaderboard "${pids[${#pids[@]}-1]}" "$lb/health"
 
 # DATABASE_URL names a server to use (CI's Postgres service); otherwise a throwaway
 # cluster is started here (initdb from PG_BINDIR or pg_config --bindir), trusting local
-# connections, and removed with the logs' other processes on exit.
+# connections, and stopped on exit. TCP only: macOS caps socket paths at 103 bytes, which a
+# LOG_DIR under a deep temporary directory exceeds.
 if [[ -z "${DATABASE_URL:-}" ]]; then
   bindir="${PG_BINDIR:-$(pg_config --bindir 2>/dev/null || true)}"
   [[ -x "$bindir/initdb" ]] || fail "no DATABASE_URL and no initdb (set PG_BINDIR or install PostgreSQL)"
@@ -205,7 +206,8 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   "$bindir/initdb" -D "$pgdata" -U postgres -A trust >"$log_dir/postgres.log" 2>&1 ||
     fail "initdb failed"
   "$bindir/pg_ctl" -D "$pgdata" -w -l "$log_dir/postgres.log" \
-    -o "-p $pg_port -k $pgdata -c listen_addresses=127.0.0.1 -c fsync=off" start >/dev/null ||
+    -o "-p $pg_port -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c fsync=off" \
+    start >/dev/null ||
     fail "postgres did not start"
   stop_pg() { "$bindir/pg_ctl" -D "$pgdata" -m fast stop >/dev/null 2>&1 || true; }
   DATABASE_URL="postgres://postgres@127.0.0.1:$pg_port/postgres?sslmode=disable"
