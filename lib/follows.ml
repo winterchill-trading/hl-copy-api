@@ -1,19 +1,19 @@
 open! Core
+open! Async
 open Hl_protocol
 module Follower_config = Hl_copy_core.Follower_config
 module Record = Follow_record
 
 type t =
-  { config_dir : string
-  ; state_dir : string
+  { store : Store.t
+  ; config_dir : string
   }
 
-(* Both directories are created up front: the engine watches [config_dir] from its own
+(* The directory is created up front: the engine watches [config_dir] from its own
    container (read-only mount) and reports it as an error until it exists. *)
-let create ~config_dir ~state_dir =
+let create ~store ~config_dir =
   Core_unix.mkdir_p config_dir;
-  Core_unix.mkdir_p state_dir;
-  { config_dir; state_dir }
+  { store; config_dir }
 ;;
 
 let config_dir t = t.config_dir
@@ -70,42 +70,48 @@ let write_atomically ~dir ~name contents =
     Core_unix.rename ~src:tmp ~dst:(dir ^/ name))
 ;;
 
-let record_path t id = t.state_dir ^/ id ^ ".sexp"
-
-let load t id =
-  match Sexp.load_sexp_conv_exn (record_path t id) Record.t_of_sexp with
-  | record -> Some record
+let read_file path =
+  match In_channel.read_all path with
+  | contents -> Some contents
   | exception _ -> None
 ;;
 
-let save t (r : Record.t) =
+(* The engine's view of one record: its config file while running or paused, no file once
+   stopped. An identical file is left alone, so a resync at startup does not touch files
+   the engine already has. *)
+let write_config t (r : Record.t) =
   let open Or_error.Let_syntax in
   let%bind config = follower_config r in
-  let%bind () =
-    match r.state with
-    | Running | Paused ->
-      write_atomically
-        ~dir:t.config_dir
-        ~name:(Follower_config.file_name config)
-        (Follower_config.to_file_contents config)
-    | Stopped ->
-      Or_error.try_with (fun () ->
-        let path = t.config_dir ^/ Follower_config.file_name config in
-        match Sys_unix.file_exists path with
-        | `Yes -> Core_unix.unlink path
-        | `No | `Unknown -> ())
-  in
-  write_atomically
-    ~dir:t.state_dir
-    ~name:(r.id ^ ".sexp")
-    (Sexp.to_string_hum (Record.sexp_of_t r) ^ "\n")
+  let name = Follower_config.file_name config in
+  let path = t.config_dir ^/ name in
+  match r.state with
+  | Running | Paused ->
+    let contents = Follower_config.to_file_contents config in
+    if Option.equal String.equal (read_file path) (Some contents)
+    then Ok ()
+    else write_atomically ~dir:t.config_dir ~name contents
+  | Stopped ->
+    Or_error.try_with (fun () ->
+      match Sys_unix.file_exists path with
+      | `Yes -> Core_unix.unlink path
+      | `No | `Unknown -> ())
+;;
+
+(* The store is the record of truth and is written first; a config file that then fails to
+   write is put right by [sync_configs] at the next start. *)
+let save t (r : Record.t) =
+  let open Deferred.Or_error.Let_syntax in
+  let%bind (_ : Follower_config.t) = Deferred.return (follower_config r) in
+  let%bind () = Store.put_follow t.store r in
+  Deferred.return (write_config t r)
 ;;
 
 let start t ~follower ~leader ~scale ~caps ~now_ms =
+  let open Deferred.Or_error.Let_syntax in
   let id = id ~follower ~leader in
-  match load t id with
+  match%bind Store.find_follow t.store ~id with
   | Some { state = Running | Paused; _ } ->
-    Or_error.error_s [%message "already following this leader" (id : string)]
+    Deferred.Or_error.error_s [%message "already following this leader" (id : string)]
   | existing ->
     let created_ms =
       Option.value_map existing ~default:now_ms ~f:(fun (r : Record.t) -> r.created_ms)
@@ -121,40 +127,35 @@ let start t ~follower ~leader ~scale ~caps ~now_ms =
       ; updated_ms = now_ms
       }
     in
-    Or_error.map (save t record) ~f:(fun () -> record)
+    let%map () = save t record in
+    record
 ;;
 
-let all t =
-  match Sys_unix.readdir t.state_dir with
-  | exception _ -> []
-  | files ->
-    Array.to_list files
-    |> List.filter_map ~f:(String.chop_suffix ~suffix:".sexp")
-    |> List.filter ~f:(fun id -> not (String.is_prefix id ~prefix:"."))
-    |> List.filter_map ~f:(load t)
-    |> List.sort ~compare:Record.compare_by_age
-;;
+let all t = Store.follows t.store ()
+let list t ~follower = Store.follows t.store ~follower ()
 
-let list t ~follower = List.filter (all t) ~f:(fun r -> Address.equal r.follower follower)
+(* Ids come from URLs; anything that is not "<address>-<address>" is not looked up. *)
+let is_id id =
+  String.length id = 85
+  && String.for_all id ~f:(fun c -> Char.is_alphanum c || Char.equal c '-')
+;;
 
 let find t ~follower id =
-  (* Ids come from URLs; anything that is not "<address>-<address>" never touches the file
-     system. *)
-  let is_id =
-    String.length id = 85
-    && String.for_all id ~f:(fun c -> Char.is_alphanum c || Char.equal c '-')
-  in
-  if not is_id
-  then None
+  if not (is_id id)
+  then Deferred.Or_error.return None
   else
-    Option.filter (load t id) ~f:(fun (r : Record.t) -> Address.equal r.follower follower)
+    Store.find_follow t.store ~id
+    |> Deferred.Or_error.map
+         ~f:(Option.filter ~f:(fun (r : Record.t) -> Address.equal r.follower follower))
 ;;
 
 let update t ~follower id ?scale ?caps ?state ~now_ms () =
-  match find t ~follower id with
-  | None -> Or_error.error_s [%message "no such follow" (id : string)]
+  let open Deferred.Or_error.Let_syntax in
+  match%bind find t ~follower id with
+  | None -> Deferred.Or_error.error_s [%message "no such follow" (id : string)]
   | Some { state = Stopped; _ } ->
-    Or_error.error_s [%message "follow is stopped; follow the leader again" (id : string)]
+    Deferred.Or_error.error_s
+      [%message "follow is stopped; follow the leader again" (id : string)]
   | Some r ->
     let record =
       { r with
@@ -164,5 +165,55 @@ let update t ~follower id ?scale ?caps ?state ~now_ms () =
       ; updated_ms = now_ms
       }
     in
-    Or_error.map (save t record) ~f:(fun () -> record)
+    let%map () = save t record in
+    record
+;;
+
+let sync_configs t =
+  let open Deferred.Or_error.Let_syntax in
+  let%bind records = all t in
+  let%bind () =
+    Deferred.return (Or_error.combine_errors_unit (List.map records ~f:(write_config t)))
+  in
+  (* Config files without a running or paused follow behind them (written by a replica
+     whose follow was later stopped elsewhere, or by hand) are removed. Only names shaped
+     like follow configs are considered. *)
+  let active =
+    List.filter_map records ~f:(fun r ->
+      match r.state with
+      | Running | Paused -> Some (r.id ^ ".sexp")
+      | Stopped -> None)
+    |> String.Set.of_list
+  in
+  let%map files =
+    Deferred.return (Or_error.try_with (fun () -> Sys_unix.readdir t.config_dir))
+  in
+  Array.iter files ~f:(fun name ->
+    match String.chop_suffix name ~suffix:".sexp" with
+    | Some id when is_id id && not (Set.mem active name) ->
+      Log.Global.info_s [%message "removing stale follower config" (name : string)];
+      (try Core_unix.unlink (t.config_dir ^/ name) with
+       | _ -> ())
+    | Some _ | None -> ())
+;;
+
+let import_records t ~dir =
+  match Sys_unix.readdir dir with
+  | exception _ -> Deferred.Or_error.return 0
+  | files ->
+    let records =
+      Array.to_list files
+      |> List.filter ~f:(fun f -> not (String.is_prefix f ~prefix:"."))
+      |> List.filter_map ~f:(String.chop_suffix ~suffix:".sexp")
+      |> List.filter_map ~f:(fun id ->
+        match Sexp.load_sexp_conv_exn (dir ^/ id ^ ".sexp") Record.t_of_sexp with
+        | r -> Some r
+        | exception exn ->
+          Log.Global.error_s
+            [%message "skipping unreadable follow record" (id : string) (exn : exn)];
+          None)
+    in
+    Deferred.Or_error.List.fold records ~init:0 ~f:(fun n r ->
+      Deferred.Or_error.map (Store.add_follow_if_absent t.store r) ~f:(fun added ->
+        if added then n + 1 else n))
 ;;
