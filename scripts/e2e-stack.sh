@@ -3,7 +3,8 @@
 #
 #   hl-sim (3 leaders, 40 noise traders, strict signatures, seeded)
 #   hl-leaderboard collect + rank + serve against the simulator
-#   hl-copy-api (builder fee on), hl-copy-engine (agent keys from the API's key store)
+#   hl-copy-api (builder fee on, state in PostgreSQL), hl-copy-engine (agent keys from
+#   the API's key store)
 #
 # then, with a throwaway wallet made here (never printed): challenge, personal_sign,
 # verify, agent offer, approveAgent signed as eth_signTypedData_v4, approved, builder fee,
@@ -33,7 +34,8 @@
 # (<root>/_build-hl-copy-api-e2e), SEED (7), WARMUP_S (20: trading before the
 # leaderboard is collected), FOLLOW_S (90), TRACK_WAIT_S (60), RESYNC_S (5), LEADER
 # (leader 0, a trend follower), SIM_PORT (3570), LEADERBOARD_PORT (8590), API_PORT
-# (8580), ENGINE_PORT (9970), LOG_DIR (a temporary directory), SMOKE (1 or 0), WEB_JS
+# (8580), ENGINE_PORT (9970), DATABASE_URL (unset: a throwaway cluster on PG_PORT, 5590,
+# from PG_BINDIR or pg_config), LOG_DIR (a temporary directory), SMOKE (1 or 0), WEB_JS
 # (hl-copy-web's compiled main.bc.js), WEB_DIR (hl-copy-web's checkout).
 #
 # Simulator only: hl-sim on loopback, throwaway keys from openssl. The API and the engine
@@ -53,6 +55,7 @@ sim_port="${SIM_PORT:-3570}"
 lb_port="${LEADERBOARD_PORT:-8590}"
 api_port="${API_PORT:-8580}"
 engine_port="${ENGINE_PORT:-9970}"
+pg_port="${PG_PORT:-5590}"
 log_dir="${LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/hl-copy-stack.XXXXXX")}"
 mkdir -p "$log_dir"
 state="$log_dir/state"
@@ -63,12 +66,14 @@ mkdir -p "$state" "$configs" "$journal"
 say() { echo "e2e-stack: $*" >&2; }
 
 pids=()
+stop_pg() { :; }
 cleanup() {
   local code=$?
   for ((i = ${#pids[@]} - 1; i >= 0; i--)); do
     kill "${pids[$i]}" 2>/dev/null || true
     wait "${pids[$i]}" 2>/dev/null || true
   done
+  stop_pg
   if ((code != 0)); then
     for f in sim leaderboard api engine ws; do
       if [[ -s "$log_dir/$f.log" ]]; then
@@ -87,9 +92,11 @@ fail() {
   exit 1
 }
 
-for port in "$sim_port" "$lb_port" "$api_port" "$engine_port"; do
+ports=("$sim_port" "$lb_port" "$api_port" "$engine_port")
+if [[ -z "${DATABASE_URL:-}" ]]; then ports+=("$pg_port"); fi
+for port in "${ports[@]}"; do
   if (echo >"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-    fail "port $port is in use; set SIM_PORT, LEADERBOARD_PORT, API_PORT or ENGINE_PORT"
+    fail "port $port is in use; set SIM_PORT, LEADERBOARD_PORT, API_PORT, ENGINE_PORT or PG_PORT"
   fi
 done
 
@@ -184,6 +191,26 @@ done
 "$lb_exe" serve -port "$lb_port" -dir "$log_dir/leaderboard" >>"$log_dir/leaderboard.log" 2>&1 &
 pids+=($!)
 wait_http hl-leaderboard "${pids[${#pids[@]}-1]}" "$lb/health"
+
+# ---- PostgreSQL for hl-copy-api
+
+# DATABASE_URL names a server to use (CI's Postgres service); otherwise a throwaway
+# cluster is started here (initdb from PG_BINDIR or pg_config --bindir), trusting local
+# connections, and removed with the logs' other processes on exit.
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  bindir="${PG_BINDIR:-$(pg_config --bindir 2>/dev/null || true)}"
+  [[ -x "$bindir/initdb" ]] || fail "no DATABASE_URL and no initdb (set PG_BINDIR or install PostgreSQL)"
+  pgdata="$log_dir/pgdata"
+  say "throwaway PostgreSQL on $pg_port"
+  "$bindir/initdb" -D "$pgdata" -U postgres -A trust >"$log_dir/postgres.log" 2>&1 ||
+    fail "initdb failed"
+  "$bindir/pg_ctl" -D "$pgdata" -w -l "$log_dir/postgres.log" \
+    -o "-p $pg_port -k $pgdata -c listen_addresses=127.0.0.1 -c fsync=off" start >/dev/null ||
+    fail "postgres did not start"
+  stop_pg() { "$bindir/pg_ctl" -D "$pgdata" -m fast stop >/dev/null 2>&1 || true; }
+  DATABASE_URL="postgres://postgres@127.0.0.1:$pg_port/postgres?sslmode=disable"
+fi
+export DATABASE_URL
 
 # ---- hl-copy-api and hl-copy-engine share the key store and its master key
 
