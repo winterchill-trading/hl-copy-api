@@ -17,7 +17,11 @@ let command =
     ~readme:(fun () ->
       "The master key that seals agent keys is read from HL_COPY_MASTER_KEY (64 hex \
        digits; e.g. openssl rand -hex 32). Losing it makes every stored agent key \
-       unusable; users then approve a new agent. Mainnet exchange URLs are refused.")
+       unusable; users then approve a new agent. Mainnet exchange URLs are refused.\n\n\
+       Follows, sealed agent keys and builder fee approvals live in PostgreSQL \
+       (-database-url, DATABASE_URL or PG*; TLS unless sslmode=disable); pending \
+       migrations are applied at startup. The engine's inputs (key files under \
+       -state-dir, follower configs under -config-dir) are written from the database.")
     (let%map_open.Command port =
        flag "-port" (optional_with_default 8080 int) ~doc:"PORT listen port (8080)"
      and exchange_url =
@@ -32,7 +36,7 @@ let command =
        flag
          "-state-dir"
          (optional_with_default Server.Config.default.state_dir string)
-         ~doc:"DIR sealed agent keys and follow records (./state)"
+         ~doc:"DIR agent key files for the engine, written from the store (./state)"
      and config_dir =
        flag
          "-config-dir"
@@ -58,6 +62,18 @@ let command =
          ~doc:"N builder fee in tenths of a basis point, at most 100 (10 = 0.01%)"
      and session_hours =
        flag "-session-hours" (optional_with_default 24. float) ~doc:"H session lifetime"
+     and database_url =
+       flag
+         "-database-url"
+         (optional string)
+         ~doc:
+           "URL PostgreSQL, e.g. postgres://hl_copy@localhost/hl_copy?sslmode=disable \
+            (default DATABASE_URL, else the PG* variables)"
+     and memory_store =
+       flag
+         "-memory-store"
+         no_arg
+         ~doc:" keep follows and agents in memory only: everything is lost on restart"
      and rpm =
        flag
          "-requests-per-minute"
@@ -101,7 +117,18 @@ let command =
          ; ws_status_interval = Server.Config.default.ws_status_interval
          }
        in
-       let%bind api = Deferred.return (Server.create config ~master_key) in
+       let%bind store =
+         if memory_store
+         then return (Store_memory.store (Store_memory.create ()))
+         else (
+           let%map pg = Store_pg.connect ?database_url () in
+           let applied = Store_pg.applied_migrations pg in
+           if not (List.is_empty applied)
+           then Log.Global.info_s [%message "applied migrations" (applied : int list)];
+           Store_pg.store pg)
+       in
+       Log.Global.info_s [%message "store" ~kind:(Store.kind store : string)];
+       let%bind api = Server.create config ~master_key ~store in
        let%bind.Deferred server = Server.start api ~port in
        Log.Global.info_s
          [%message
