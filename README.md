@@ -11,13 +11,17 @@ the shared request and response types (`Api_types`, opam package `hl-copy-api-ty
 `hyperliquid.xyz` at startup and only builds approvals for `hyperliquidChain: "Testnet"`.
 It never asks for or sees a user's wallet key.
 
-Library `hl-copy-api` (module `Hl_copy_api`) and binary `hl-copy-api`. Approved agent
-keys go to `Hl_copy_core.Key_store`, which the engine reads with the same master key.
+Library `hl-copy-api` (module `Hl_copy_api`) and binary `hl-copy-api`. Follows, sealed
+agent keys and builder fee approvals live in PostgreSQL (through
+[pg-async](https://github.com/winterchill-trading/pg-async)); the engine's inputs, the
+follower config files and the `Hl_copy_core.Key_store` key files it opens with the same
+master key, are written from the database.
 
 ## Running
 
 ```sh
 export HL_COPY_MASTER_KEY=$(openssl rand -hex 32)   # keep it: it opens every stored agent key
+export DATABASE_URL='postgres://hl_copy:hl-copy-dev@127.0.0.1:5432/hl_copy?sslmode=disable'
 hl-sim -port 3000 -strict-signatures &
 hl-copy-api -port 8080 -exchange-url http://localhost:3000 \
   -leaderboard-url http://localhost:8090 -engine-url http://localhost:8070 \
@@ -27,6 +31,37 @@ hl-copy-api -port 8080 -exchange-url http://localhost:3000 \
 
 `hl-copy-api -help` lists every flag (builder address and fee, session lifetime, rate
 limits, public URL for the sign-in message). Logs go to stderr, one line per request.
+
+The database comes from `-database-url`, else `DATABASE_URL`, else the `PG*` variables;
+TLS is required unless the URL says `sslmode=disable` (local and compose setups do). The
+compose stack in infra (`make up-db`, database `hl_copy`) is the usual local server.
+Pending migrations (`migrations/`, embedded in the binary) are applied at startup under
+an advisory lock. `-memory-store` runs without a database: everything is lost on restart.
+
+## Storage
+
+`Store.S` (`lib/store.mli`) is the API's state in domain types: follow records
+(`Follow_record.t`), each account's sealed agent entry (`Hl_copy_core.Key_store.Entry.t`,
+still encrypted; the database never sees a plaintext key) and builder fee approvals.
+Two implementations: `Store_pg`, the only module with SQL in it, and `Store_memory` for
+tests and `-memory-store`. `test/store_conformance.ml` runs the same scenarios against
+both and the two expect blocks are identical.
+
+| Table | Key (every write is idempotent on it) | Notes |
+|---|---|---|
+| `follows` | `id` = `<follower>-<leader>` | scale as mode and value, caps as columns, allowlist `text[]`, state, ms timestamps |
+| `agents` | `account` | ciphertext, nonce and tag as `bytea`; times as integer ns so a rebuilt key file is byte-identical |
+| `builder_fee_approvals` | `(account, builder)` | first approval time kept |
+
+The database is the record of truth and the engine still reads files (it never connects
+to the database): the API writes the database first, then the file. At startup it makes
+the files match the database: it rewrites missing or different key files and follower
+configs and removes the ones with nothing behind them. On the first start over a state
+directory written by the file-based version, the old `<state>/follows/*.sexp` records and
+key files are copied into the database (rows already there win), and a
+`.imported-to-store` marker keeps a later start from bringing back an agent revoked
+since. Session tokens and login challenges are not stored (see below), so replicas share
+a session key through the master key and nothing else.
 
 ## Endpoints
 
@@ -110,9 +145,9 @@ curl -s $API/me -H "authorization: Bearer $TOKEN"
   Every nonce the server hands out for one wallet is distinct, even within a millisecond.
 - **Builder fee.** Offered with the agent when `-builder` is set, signed by the wallet,
   submitted the same way.
-- **Follows.** Each follow is a record in `<state>/follows/<id>.sexp` and, while running or
-  paused, an `Hl_copy_core.Follower_config` file `<configs>/<follower>-<leader>.sexp` that
-  the engine watches (`paused true` when paused, removed on stop). Web caps of `0` mean no
+- **Follows.** Each follow is a row in the database and, while running or paused, an
+  `Hl_copy_core.Follower_config` file `<configs>/<follower>-<leader>.sexp` that the
+  engine watches (`paused true` when paused, removed on stop). Web caps of `0` mean no
   cap and an empty allowlist copies every coin.
 - **Leaders** come from `hl-leaderboard serve` (cached 10 s) and are reshaped into
   `Api_types`; the score is the leaderboard score times 100, clamped to 0 to 100.
@@ -125,8 +160,9 @@ curl -s $API/me -H "authorization: Bearer $TOKEN"
 Unapproved offers live in memory only (a restart means asking for a new offer). Once the
 exchange accepts `approveAgent`, the key is sealed into `Hl_copy_core.Key_store`:
 `<state>/agents/<account>.key`, mode 0600, the account's current agent (address, name,
-created, valid until, ciphertext, nonce, tag). Approving another agent replaces it;
-`/agent/revoke` deletes it. The engine opens it with the same `HL_COPY_MASTER_KEY`:
+created, valid until, ciphertext, nonce, tag), and the same sealed entry is stored in the
+`agents` table. Approving another agent replaces both; `/agent/revoke` deletes the row,
+then the file. The engine opens the file with the same `HL_COPY_MASTER_KEY`:
 
 ```ocaml
 let%bind store = Hl_copy_core.Key_store.create ~state_dir () in   (* master key from env *)
@@ -153,8 +189,9 @@ browser does, with a throwaway wallet made by `openssl` (never printed):
 2. starts hl-sim (`-leaders 3 -noise-traders 40 -strict-signatures`, seed 7, every
    account at $100,000 like the leaders, so `Equity_ratio` copies about one for one),
    lets it trade, then `hl-leaderboard collect`, `rank` and `serve` against it;
-3. starts the API (builder fee 0.01%) and the engine on the API's key store
-   (`-state-dir`, same `HL_COPY_MASTER_KEY`);
+3. starts PostgreSQL (`DATABASE_URL` when set, as in CI; otherwise a throwaway cluster
+   from `initdb` on `PG_PORT`), the API on it (builder fee 0.01%) and the engine on the
+   API's key store (`-state-dir`, same `HL_COPY_MASTER_KEY`);
 4. challenge, `personal_sign`, verify; `/agent/new`, `approveAgent` signed as
    `eth_signTypedData_v4`, `/agent/approved`; `/builder-fee`; follows leader 0 with
    `{"kind":"equity_ratio"}` and caps; listens on `/ws`;
@@ -212,13 +249,19 @@ for the script. A warm run (cached switch) takes about 9 min, so the job stays i
 
 `dune test` runs everything in-process: login, agent and builder fee approval, follows,
 CORS, rate limits, metrics and the websocket against an hl-sim that verifies every
-signature, with throwaway keys made in the test. Wallet signatures (`personal_sign` and
+signature, with throwaway keys made in the test. The PostgreSQL tests (store conformance,
+migrations, a restart that rebuilds the engine's files) create a database per test on
+`HL_COPY_TEST_DATABASE_URL` when set (CI's Postgres service), otherwise on pg-async's
+throwaway cluster, which needs the server binaries (`brew install postgresql@18`,
+`apt-get install postgresql`). Wallet signatures (`personal_sign` and
 the approval typed data) are pinned against `eth_account`, and the leaders proxy runs
 against a real `hl-leaderboard serve`.
 
 ## CI pins
 
-fixed-decimal, exchange-core, order-book, exchange-core-engine, hl-protocol, parquet,
+pg-async, fixed-decimal, exchange-core, order-book, exchange-core-engine, hl-protocol, parquet,
 market-data, price-anchor, venue-net, hl-client, binance-protocol, mm-core,
 binance-client, hl-sim, hl-copy-core, hl-leaderboard, and `hl-copy-api-types` from the
 hl-copy-web repository (only that package, so the web app's dependencies stay out).
+`libpq-dev` is installed before the switch for pg-async's bindings, and both jobs run a
+`postgres:18-alpine` service.
