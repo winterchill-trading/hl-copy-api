@@ -261,7 +261,8 @@ against a real `hl-leaderboard serve`.
 
 pg-async, fixed-decimal, exchange-core, order-book, exchange-core-engine, hl-protocol, parquet,
 market-data, price-anchor, venue-net, hl-client, binance-protocol, mm-core,
-binance-client, hl-sim, hl-copy-core, hl-leaderboard, and `hl-copy-api-types` from the
+binance-client, hl-sim, hl-copy-core, leader-scoring and leader-scoring-hl (one repository),
+hl-leaderboard, and `hl-copy-api-types` from the
 hl-copy-web repository (only that package, so the web app's dependencies stay out).
 `libpq-dev` is installed before the switch for pg-async's bindings, and both jobs run a
 `postgres:18-alpine` service.

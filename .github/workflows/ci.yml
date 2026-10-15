@@ -44,6 +44,8 @@ jobs:
             binance-client https://github.com/winterchill-trading/binance-client.git
             hl-sim https://github.com/winterchill-trading/hl-sim.git
             hl-copy-core https://github.com/winterchill-trading/hl-copy-core.git
+            leader-scoring https://github.com/winterchill-trading/leader-scoring.git
+            leader-scoring-hl https://github.com/winterchill-trading/leader-scoring.git
             hl-leaderboard https://github.com/winterchill-trading/hl-leaderboard.git
             hl-copy-api-types https://github.com/winterchill-trading/hl-copy-web.git
       - run: shellcheck scripts/*.sh
@@ -116,6 +118,8 @@ jobs:
             binance-client https://github.com/winterchill-trading/binance-client.git
             hl-sim https://github.com/winterchill-trading/hl-sim.git
             hl-copy-core https://github.com/winterchill-trading/hl-copy-core.git
+            leader-scoring https://github.com/winterchill-trading/leader-scoring.git
+            leader-scoring-hl https://github.com/winterchill-trading/leader-scoring.git
             hl-leaderboard https://github.com/winterchill-trading/hl-leaderboard.git
             hl-copy-api-types https://github.com/winterchill-trading/hl-copy-web.git
       - uses: actions/setup-node@v4
