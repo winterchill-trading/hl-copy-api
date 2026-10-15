@@ -176,7 +176,9 @@ let%expect_test "proxied from hl-leaderboard serve" =
     return ())
 ;;
 
-let%expect_test "leader-scoring summaries order the list; reports become the page's detail" =
+let%expect_test "leader-scoring summaries order the list; reports become the page's \
+                 detail"
+  =
   let summary ~score ~eligible =
     `Assoc
       [ "score", `Float score
@@ -198,18 +200,20 @@ let%expect_test "leader-scoring summaries order the list; reports become the pag
     | `Assoc fields ->
       `Assoc
         (List.map fields ~f:(function
-           | "leaders", `List entries ->
-             ( "leaders"
-             , `List
-                 (List.mapi entries ~f:(fun i -> function
-                    | `Assoc e ->
-                      `Assoc
-                        (e
-                         @ [ ( "scoring"
-                             , summary ~score:(10. *. Float.of_int (i + 1)) ~eligible:(i > 0) )
-                           ])
-                    | e -> e)) )
-           | f -> f))
+          | "leaders", `List entries ->
+            ( "leaders"
+            , `List
+                (List.mapi entries ~f:(fun i -> function
+                   | `Assoc e ->
+                     `Assoc
+                       (e
+                        @ [ ( "scoring"
+                            , summary
+                                ~score:(10. *. Float.of_int (i + 1))
+                                ~eligible:(i > 0) )
+                          ])
+                   | e -> e)) )
+          | f -> f))
     | json -> json
   in
   let response = Leaders.leaders_of_json ~followers ranking |> Or_error.ok_exn in
@@ -250,7 +254,8 @@ let%expect_test "leader-scoring summaries order the list; reports become the pag
     |> Or_error.ok_exn
   in
   print_json Api_types.Scoring.Detail.yojson_of_t (Option.value_exn detail.scoring);
-  [%expect {|
+  [%expect
+    {|
     rank 1 score 20.0 eligible true 0x0000...0abc
     rank 2 score 10.0 eligible false 0x87f9...e2cf
     {
