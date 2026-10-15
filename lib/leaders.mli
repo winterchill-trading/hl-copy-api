@@ -9,7 +9,14 @@
     - [breakdown]: the score components ([avg_hold_hours] becomes seconds, [return] is
       [roi]);
     - [window_pnl]: the leaderboard's [day], [week], [month] and [allTime] pnl;
-    - [followers]: follows on this platform that are running or paused. *)
+    - [followers]: follows on this platform that are running or paused;
+    - [scoring]: hl-leaderboard's leader-scoring summary, when the ranking has one. When
+      every leader has one, [score] is the composite leader-scoring score (0 to 100)
+      instead, and the list is ordered and numbered by it: eligible leaders first, best
+      first.
+
+    The detail's [scoring] is the leader-scoring report hl-leaderboard serves with the
+    leader (metrics, score components, the learned forecast, capacity curve, alerts). *)
 
 open! Core
 open Async

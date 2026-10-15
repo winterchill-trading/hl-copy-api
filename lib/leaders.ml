@@ -35,6 +35,13 @@ let ms_of_iso s =
   | exception _ -> 0.
 ;;
 
+(* hl-leaderboard's ["scoring"] summary has the field names of
+   [Api_types.Scoring.Summary]; a malformed one is dropped rather than failing the list. *)
+let scoring_summary entry =
+  Option.bind (member "scoring" entry) ~f:(fun j ->
+    Option.try_with (fun () -> Api_types.Scoring.Summary.t_of_yojson j))
+;;
+
 let leader_of_entry ~followers ~position entry : Api_types.Leader.t Or_error.t =
   match str (member "address" entry) with
   | None -> Or_error.error_string "leaderboard entry without an address"
@@ -46,12 +53,15 @@ let leader_of_entry ~followers ~position entry : Api_types.Leader.t Or_error.t =
         (Option.bind (member "leaderboard" entry) ~f:(member name)
          |> Option.bind ~f:(member "pnl"))
     in
+    let scoring = scoring_summary entry in
     Ok
       { address = address_to_api address
       ; display_name = str (member "display_name" entry)
       ; rank = Option.value (int (member "rank" entry)) ~default:position
       ; score =
-          Float.clamp_exn (num (member "score" entry) *. 100.) ~min:0. ~max:100.
+          (match scoring with
+           | Some s -> Float.clamp_exn s.score ~min:0. ~max:100.
+           | None -> Float.clamp_exn (num (member "score" entry) *. 100.) ~min:0. ~max:100.)
           |> Float.round_decimal ~decimal_digits:2
       ; breakdown =
           { pnl = num (member "pnl" c)
@@ -70,7 +80,23 @@ let leader_of_entry ~followers ~position entry : Api_types.Leader.t Or_error.t =
           ; all_time = window "allTime"
           }
       ; followers = followers address
+      ; scoring
       }
+;;
+
+(* With leader-scoring summaries on every leader, the list follows the composite score:
+   ranked (eligible) leaders first, best first, then the rest by score. *)
+let rank_by_scoring (leaders : Api_types.Leader.t list) =
+  if List.is_empty leaders || not (List.for_all leaders ~f:(fun l -> Option.is_some l.scoring))
+  then leaders
+  else (
+    let key (l : Api_types.Leader.t) =
+      match l.scoring with
+      | Some s -> (if s.eligible then 0 else 1), -.s.score
+      | None -> 2, 0.
+    in
+    List.stable_sort leaders ~compare:(fun a b -> [%compare: int * float] (key a) (key b))
+    |> List.mapi ~f:(fun i (l : Api_types.Leader.t) -> { l with rank = i + 1 }))
 ;;
 
 let leaders_of_json ~followers json =
@@ -87,7 +113,7 @@ let leaders_of_json ~followers json =
     in
     { Api_types.Leaders_response.as_of =
         Option.value_map (str (member "generated_at" json)) ~default:0. ~f:ms_of_iso
-    ; leaders
+    ; leaders = rank_by_scoring leaders
     }
   | _ -> Or_error.error_string "leaderboard response without a leaders list"
 ;;
@@ -125,6 +151,55 @@ let list_of key json =
   | _ -> []
 ;;
 
+(* leader-scoring's report JSON (see [Leader_scoring.Report.to_json]) as the page's
+   detail. Metrics, components and capacity carry the wire names already. *)
+let scoring_detail report =
+  match report with
+  | `Null -> None
+  | _ ->
+    Option.try_with (fun () ->
+      let score = Option.value (member "score" report) ~default:`Null in
+      let floats key j =
+        match member key j with
+        | Some (`Float f) -> Some f
+        | Some (`Int i) -> Some (Float.of_int i)
+        | _ -> None
+      in
+      let decode key f =
+        List.map (list_of key report) ~f
+      in
+      { Api_types.Scoring.Detail.score = num (member "value" score)
+      ; rank = int (member "rank" score)
+      ; percentile = floats "percentile" score
+      ; eligible =
+          (match member "eligible" score with
+           | Some (`Bool b) -> b
+           | _ -> false)
+      ; reasons = List.filter_map (list_of "reasons" score) ~f:(fun j -> str (Some j))
+      ; components = List.map (list_of "components" score) ~f:Api_types.Scoring.Component.t_of_yojson
+      ; predicted_forward_sharpe = floats "predicted_forward_sharpe" report
+      ; metrics = decode "metrics" Api_types.Scoring.Metric.t_of_yojson
+      ; equity_source = Option.value (str (member "equity_source" report)) ~default:"unknown"
+      ; bar_seconds = num (member "bar_seconds" report)
+      ; equity_curve =
+          List.filter_map (list_of "equity_curve" report) ~f:(function
+            | `List [ time; equity ] ->
+              Some { Api_types.Equity_point.time = num (Some time); equity = num (Some equity) }
+            | _ -> None)
+      ; capacity =
+          (match member "capacity" report with
+           | None | Some `Null -> None
+           | Some c -> Some (Api_types.Scoring.Capacity.t_of_yojson c))
+      ; alerts =
+          decode "alerts" (fun a ->
+            { Api_types.Scoring.Alert.kind = Option.value (str (member "kind" a)) ~default:""
+            ; severity = Option.value (str (member "severity" a)) ~default:"info"
+            ; time = num (member "time_ms" a)
+            ; message = Option.value (str (member "message" a)) ~default:""
+            })
+      })
+;;
+
 let leader_detail_of_json ~followers json =
   let open Or_error.Let_syntax in
   let%bind address =
@@ -156,7 +231,8 @@ let leader_detail_of_json ~followers json =
         Some { Api_types.Equity_point.time = num (Some time); equity = num (Some equity) }
       | _ -> None)
   in
-  return { Api_types.Leader_detail.leader; equity_curve; fills; positions }
+  let scoring = Option.bind (member "report" json) ~f:scoring_detail in
+  return { Api_types.Leader_detail.leader; equity_curve; fills; positions; scoring }
 ;;
 
 type t =
