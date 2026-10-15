@@ -175,3 +175,147 @@ let%expect_test "proxied from hl-leaderboard serve" =
     [%expect {| true |}];
     return ())
 ;;
+
+let%expect_test "leader-scoring summaries order the list; reports become the page's detail" =
+  let summary ~score ~eligible =
+    `Assoc
+      [ "score", `Float score
+      ; "rank", `Null
+      ; "percentile", `Null
+      ; "eligible", `Bool eligible
+      ; "predicted_forward_sharpe", `Float 0.12
+      ; "capacity_usd", `Float 250_000.
+      ; "alerts", `Int 1
+      ; "worst_alert", `String "warning"
+      ; "sharpe", `Float 1.5
+      ; "max_drawdown", `Float 0.2
+      ; "leverage_p95", `Float 2.
+      ; "trades", `Float 12.
+      ]
+  in
+  let ranking =
+    match Yojson.Safe.from_file "fixtures/leaders.json" with
+    | `Assoc fields ->
+      `Assoc
+        (List.map fields ~f:(function
+           | "leaders", `List entries ->
+             ( "leaders"
+             , `List
+                 (List.mapi entries ~f:(fun i -> function
+                    | `Assoc e ->
+                      `Assoc
+                        (e
+                         @ [ ( "scoring"
+                             , summary ~score:(10. *. Float.of_int (i + 1)) ~eligible:(i > 0) )
+                           ])
+                    | e -> e)) )
+           | f -> f))
+    | json -> json
+  in
+  let response = Leaders.leaders_of_json ~followers ranking |> Or_error.ok_exn in
+  List.iter response.leaders ~f:(fun l ->
+    printf
+      "rank %d score %.1f eligible %b %s\n"
+      l.rank
+      l.score
+      (Option.value_exn l.scoring).eligible
+      (Api_types.Address.short l.address));
+  let report =
+    Yojson.Safe.from_string
+      {|{"account":"0x87f9cd15f5050a9283b8896300f7c8cf69ece2cf","equity_source":"anchored",
+         "from_ms":1791000000000,"until_ms":1791086400000,"fills":12,"fills_truncated":false,
+         "bar_seconds":3600.0,
+         "score":{"value":61.5,"rank":2,"percentile":0.5,"eligible":true,"reasons":[],
+                  "components":[{"metric":"sharpe","label":"Sharpe","value":1.5,"percentile":0.75,
+                                 "weight":0.15,"contribution":11.25}]},
+         "predicted_forward_sharpe":0.12,
+         "metrics":[{"name":"sharpe","label":"Sharpe","value":1.5,"unit":"number","better":"higher"},
+                    {"name":"cagr","label":"CAGR","value":null,"unit":"ratio","better":"higher"}],
+         "equity_curve":[[1791000000000,100000.0],[1791086400000,101000.0]],
+         "capacity":{"max_cost_bps":10.0,"capacity_usd":250000.0,"orders":7,"coins_without_book":[],
+                     "curve":[{"follower_equity":1000.0,"orders":7,"mean_cost_bps":1.0,
+                               "median_cost_bps":1.0,"p90_cost_bps":1.5,"unfilled_share":0.0}]},
+         "alerts":[{"kind":"leverage_spike","severity":"warning","time_ms":1791080000000,
+                    "message":"leverage reached 4.1x; baseline p95 1.2x","value":4.1,"threshold":3.0}]}|}
+  in
+  let detail =
+    `Assoc
+      [ "address", `String "0x87f9cd15f5050a9283b8896300f7c8cf69ece2cf"
+      ; "fills", `List []
+      ; "positions", `List []
+      ; "equity_curve", `List []
+      ; "report", report
+      ]
+    |> Leaders.leader_detail_of_json ~followers
+    |> Or_error.ok_exn
+  in
+  print_json Api_types.Scoring.Detail.yojson_of_t (Option.value_exn detail.scoring);
+  [%expect {|
+    rank 1 score 20.0 eligible true 0x0000...0abc
+    rank 2 score 10.0 eligible false 0x87f9...e2cf
+    {
+      "score": 61.5,
+      "rank": 2,
+      "percentile": 0.5,
+      "eligible": true,
+      "reasons": [],
+      "components": [
+        {
+          "metric": "sharpe",
+          "label": "Sharpe",
+          "value": 1.5,
+          "percentile": 0.75,
+          "weight": 0.15,
+          "contribution": 11.25
+        }
+      ],
+      "predicted_forward_sharpe": 0.12,
+      "metrics": [
+        {
+          "name": "sharpe",
+          "label": "Sharpe",
+          "value": 1.5,
+          "unit": "number",
+          "better": "higher"
+        },
+        {
+          "name": "cagr",
+          "label": "CAGR",
+          "value": null,
+          "unit": "ratio",
+          "better": "higher"
+        }
+      ],
+      "equity_source": "anchored",
+      "bar_seconds": 3600.0,
+      "equity_curve": [
+        { "time": 1791000000000, "equity": 100000.0 },
+        { "time": 1791086400000, "equity": 101000.0 }
+      ],
+      "capacity": {
+        "max_cost_bps": 10.0,
+        "capacity_usd": 250000.0,
+        "curve": [
+          {
+            "follower_equity": 1000.0,
+            "orders": 7,
+            "mean_cost_bps": 1.0,
+            "median_cost_bps": 1.0,
+            "p90_cost_bps": 1.5,
+            "unfilled_share": 0.0
+          }
+        ],
+        "coins_without_book": []
+      },
+      "alerts": [
+        {
+          "kind": "leverage_spike",
+          "severity": "warning",
+          "time": 1791080000000,
+          "message": "leverage reached 4.1x; baseline p95 1.2x"
+        }
+      ]
+    }
+    |}];
+  return ()
+;;
