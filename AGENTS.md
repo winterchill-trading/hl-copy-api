@@ -63,7 +63,8 @@ Format only this repository, after the tests pass:
 ## Dependencies and dependents
 
 - Depends on `pg-async`, `hl-copy-core`, `hl-copy-api-types` (from `../hl-copy-web`), `hl-client`,
-  `hl-protocol`, `hl-leaderboard` (proxy), `exchange-core` and `fixed-decimal`. The pin order is in
+  `hl-protocol`, `hl-leaderboard` (proxy; it needs `leader-scoring`, pinned before it),
+  `exchange-core` and `fixed-decimal`. The pin order is in
   `.github/workflows/ci.yml`; the `hl-copy-api-types` pin names the `hl-copy-web` repository.
 - Writes the follow and key files that `../hl-copy-engine` reads, and reads its `/status`.
 - The web app in `../hl-copy-web` calls this API; its live smoke test runs against it.
