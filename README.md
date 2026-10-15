@@ -150,7 +150,12 @@ curl -s $API/me -H "authorization: Bearer $TOKEN"
   engine watches (`paused true` when paused, removed on stop). Web caps of `0` mean no
   cap and an empty allowlist copies every coin.
 - **Leaders** come from `hl-leaderboard serve` (cached 10 s) and are reshaped into
-  `Api_types`; the score is the leaderboard score times 100, clamped to 0 to 100.
+  `Api_types`. Each leader carries hl-leaderboard's leader-scoring summary (`scoring`);
+  when every leader has one, the score is the composite leader-scoring score (0 to 100)
+  and the list is ordered by it, eligible leaders first; otherwise the score is the
+  leaderboard score times 100, clamped to 0 to 100. `GET /leaders/:address` adds the
+  leader-scoring report as `scoring` (metrics, score components, the 30-day forecast,
+  equity curve, capacity curve, alerts).
 - **Status.** `/me` combines the account value from `clearinghouseState` with per-follow
   pnl and positions from the engine's `/status`, read leniently (see
   `lib/engine_status.mli` for the accepted shape); without an engine it reports zeros.
