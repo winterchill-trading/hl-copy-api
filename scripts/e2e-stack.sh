@@ -13,6 +13,10 @@
 #   - /me shows positions that track the leader within one lot (plus the $10 minimum
 #     order the engine will not go below);
 #   - /ws pushed follow and fill events;
+#   - /leaders carries leader-scoring's universe checks (no honest simulator account is
+#     excluded by an integrity flag) and the leader's page decodes with them;
+#   - PATCH algo moves the follow to TWAP in the engine (an invalid form is a 400) and
+#     back to immediate;
 #   - pause cancels the follow's orders and stops new ones; stop removes the follower
 #     config;
 #   - the engine's journal of the follow replays to the same outputs.
@@ -286,6 +290,29 @@ if not any(l["address"] == sys.argv[1] for l in leaders):
     sys.exit("leader %s is not on the leaderboard (%d leaders)" % (sys.argv[1], len(leaders)))
 print("e2e-stack: %d leaders ranked; following %s" % (len(leaders), sys.argv[1]), file=sys.stderr)
 ' "$leader" || fail "leader missing"
+# leader-scoring's universe checks ride along with the ranking, and the leader's page
+# carries its integrity flags, persistence row and selection statistics.
+printf '%s' "$leaders" | python3 -I -c '
+import json, sys
+u = json.load(sys.stdin).get("universe")
+if u is None:
+    sys.exit("no universe checks in /leaders")
+print("e2e-stack: universe: persistent %s, %d periods, %d leaders with stats, %d flagged, %d excluded"
+      % (u["persistent"], u["periods"], u["leaders_with_stats"], u["flagged"], u["excluded"]),
+      file=sys.stderr)
+if u["excluded"]:
+    sys.exit("%d honest simulator accounts excluded by integrity flags" % u["excluded"])
+' || fail "universe checks"
+# A run of seconds has no complete ranking window and too few bars for the statistics,
+# so those parts may be absent; whatever is there must decode.
+curl -sf "$api/leaders/$leader" | python3 -I -c '
+import json, sys
+s = json.load(sys.stdin).get("scoring")
+if s is None:
+    sys.exit("leader detail without scoring")
+print("e2e-stack: leader page: %d integrity flags, stats %s, persistence %s"
+      % (len(s.get("integrity", [])), "stats" in s, "persistence" in s), file=sys.stderr)
+' || fail "leader detail checks missing"
 
 # The websocket listener records every push from now on.
 node_ok=0
@@ -402,6 +429,37 @@ while :; do
   sleep 2
 done
 say "tracking: $tracked"
+
+# ---- Execution algorithm: TWAP through the API into the engine, then back
+
+patch() { # json
+  curl -sf -X PATCH "$api/follows/$follow_id" -H "authorization: Bearer $token" \
+    -H 'content-type: application/json' -d "$1"
+}
+bad="$(curl -s -o /dev/null -w '%{http_code}' -X PATCH "$api/follows/$follow_id" \
+  -H "authorization: Bearer $token" -H 'content-type: application/json' -d '{"algo":"twap:0s"}')"
+[[ "$bad" == 400 ]] || fail "an invalid algorithm answered $bad"
+[[ "$(patch '{"algo":"twap:20s:4"}' | py 'd.get("algo")')" == "twap:20s:4" ]] ||
+  fail "PATCH algo not stored"
+grep -q '(algo (Twap (duration_ms 20000) (slices 4)' "$config" ||
+  fail "the follower config has no TWAP"
+deadline=$((SECONDS + resync_s + 20))
+until [[ "$(curl -sf "$engine/status" | python3 -I -c '
+import json, sys
+s = json.load(sys.stdin)
+f = next(f for f in s["followers"] if f["follower"] == sys.argv[1])
+print((f.get("execution") or {}).get("algo"))' "$wallet")" == twap ]]; do
+  ((SECONDS < deadline)) || fail "the engine did not switch to TWAP"
+  sleep 1
+done
+execution="$(get /me "$token" | python3 -I -c '
+import json, sys
+f = next(f for f in json.load(sys.stdin)["follows"] if f["leader"] == sys.argv[1])
+e = f.get("execution") or {}
+print("algo %s, engine %s, parents %s, shortfall %s bps" % (f.get("algo"), e.get("algo"), e.get("parents"), e.get("shortfall_bps")))' "$leader")"
+say "execution: $execution"
+patch '{"algo":"immediate"}' >/dev/null || fail "PATCH algo immediate"
+if grep -q '(algo' "$config"; then fail "immediate should leave algo out of the config"; fi
 
 # ---- Pause: orders cancelled, no new ones
 
