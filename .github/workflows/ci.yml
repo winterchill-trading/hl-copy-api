@@ -111,6 +111,7 @@ jobs:
             parquet https://github.com/winterchill-trading/parquet.git
             market-data https://github.com/winterchill-trading/market-data.git
             price-anchor https://github.com/winterchill-trading/price-anchor.git
+            execution-algos https://github.com/winterchill-trading/execution-algos.git
             venue-net https://github.com/winterchill-trading/venue-net.git
             hl-client https://github.com/winterchill-trading/hl-client.git
             binance-protocol https://github.com/winterchill-trading/binance-protocol.git
