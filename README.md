@@ -77,9 +77,9 @@ from `/auth/verify`.
 | `POST /agent/revoke` | yes | -> agent status; running follows are paused |
 | `POST /builder-fee` | yes | `{signature, approve_builder_fee?}` -> agent status |
 | `GET /follows` | yes | -> list of follows |
-| `POST /follows` | yes | `{leader, scale, caps}` -> follow (201); needs an approved agent |
+| `POST /follows` | yes | `{leader, scale, caps, algo?}` -> follow (201); needs an approved agent |
 | `GET /follows/:id` | yes | -> follow |
-| `PATCH /follows/:id` | yes | `{state?: "running" or "paused", scale?, caps?}` -> follow |
+| `PATCH /follows/:id` | yes | `{state?: "running" or "paused", algo?, scale?, caps?}` -> follow |
 | `DELETE /follows/:id` | yes | -> follow, now `stopped` |
 | `POST /follows/:id/pause`, `/resume`, `/stop` | yes | -> follow |
 | `GET /leaders`, `GET /leaders/:address` | | from hl-leaderboard; 503 when none is configured |
@@ -155,7 +155,24 @@ curl -s $API/me -H "authorization: Bearer $TOKEN"
   and the list is ordered by it, eligible leaders first; otherwise the score is the
   leaderboard score times 100, clamped to 0 to 100. `GET /leaders/:address` adds the
   leader-scoring report as `scoring` (metrics, score components, the 30-day forecast,
-  equity curve, capacity curve, alerts).
+  equity curve, capacity curve, alerts, the leader's persistence row, selection
+  statistics (PSR, DSR, minimum track record, the universe's PBO and SPA) and integrity
+  flags with the other accounts involved). `GET /leaders` adds `universe`: whether the
+  ranking persists from one window to the next (rank correlation with its interval, the
+  top picks against random picks), the selection statistics and how many leaders the
+  integrity checks flagged and excluded. Each summary carries `integrity_flags`,
+  `excluded`, `persistence_percentile`, `psr` and `dsr`. All of these are left out when
+  hl-leaderboard has not computed them.
+- **Execution algorithm.** `algo` on `POST /follows` and `PATCH /follows/:id` is
+  execution-algos' short form (`"twap:60s:6"`, `"adaptive:20s"`, `"passive:30s"`,
+  `"vwap:5m"`, `"pov:0.1"`, `"iceberg:0.25:30s"`, `"immediate"`), parsed and validated by
+  execution-algos (`Exec_algo_spec`): anything else is a 400. It is stored in its
+  canonical form (migration `0002_follow_algo.sql`, NULL for immediate) and written into
+  the engine's follower config (`(algo (Twap ...))`; left out for immediate, so default
+  follows write the same file as before). A follow's `algo` is absent while immediate and
+  its `execution` (the engine's cost report from `/status`: algorithm, parents, fill
+  rate, shortfall and slippage in bps, fees and the last finished parents) while the
+  engine has none, so requests and replies without them are byte for byte as before.
 - **Status.** `/me` combines the account value from `clearinghouseState` with per-follow
   pnl and positions from the engine's `/status`, read leniently (see
   `lib/engine_status.mli` for the accepted shape); without an engine it reports zeros.
