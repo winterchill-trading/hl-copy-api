@@ -144,11 +144,25 @@ let%expect_test "invalid settings write nothing" =
     in
     let%bind () =
       show
-        (Follows.start t ~follower ~leader:follower ~scale:Equity_ratio ~caps ~now_ms:1 ())
+        (Follows.start
+           t
+           ~follower
+           ~leader:follower
+           ~scale:Equity_ratio
+           ~caps
+           ~now_ms:1
+           ())
     in
     let%bind () =
       show
-        (Follows.start t ~follower ~leader ~scale:(Multiplier Float.nan) ~caps ~now_ms:1 ())
+        (Follows.start
+           t
+           ~follower
+           ~leader
+           ~scale:(Multiplier Float.nan)
+           ~caps
+           ~now_ms:1
+           ())
     in
     let%bind () =
       show
@@ -158,7 +172,8 @@ let%expect_test "invalid settings write nothing" =
            ~leader
            ~scale:(Fixed_notional Float.infinity)
            ~caps
-           ~now_ms:1 ())
+           ~now_ms:1
+           ())
     in
     let%bind () =
       show
@@ -168,7 +183,8 @@ let%expect_test "invalid settings write nothing" =
            ~leader
            ~scale:Equity_ratio
            ~caps:{ caps with min_order_notional = -1. }
-           ~now_ms:1 ())
+           ~now_ms:1
+           ())
     in
     ls config_dir;
     let%bind all = Follows.all t >>| Or_error.ok_exn in

@@ -215,9 +215,12 @@ let%expect_test "login, agent, builder fee, follow, pause, stop against hl-sim" 
     (* An execution algorithm: absent while immediate, rejected when execution-algos
        cannot read it, otherwise kept in its short form and written into the engine's
        config. *)
-    let has_algo json = Option.is_some (Yojson.Safe.Util.member "algo" json |> function
-      | `Null -> None
-      | j -> Some j)
+    let has_algo json =
+      Option.is_some
+        (Yojson.Safe.Util.member "algo" json
+         |> function
+         | `Null -> None
+         | j -> Some j)
     in
     let patch body = C.call client ~token `PATCH ("/follows/" ^ id) ~body:(`Assoc body) in
     let config () = In_channel.read_all (dir ^/ "configs" ^/ id ^ ".sexp") in

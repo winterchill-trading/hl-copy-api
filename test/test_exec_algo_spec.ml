@@ -16,7 +16,8 @@ let%expect_test "parse: execution-algos' forms, canonical, immediate is none" =
     ]
     ~f:(fun s ->
       print_s [%message s ~_:(Exec_algo_spec.parse s : string option Or_error.t)]);
-  [%expect {|
+  [%expect
+    {|
     (immediate (Ok ()))
     (twap (Ok (twap:1m:6)))
     (twap:90s:3 (Ok (twap:90s:3)))
@@ -36,8 +37,8 @@ let%expect_test "parse: execution-algos' forms, canonical, immediate is none" =
     |}]
 ;;
 
-(* hl-copy-core's copy of the type must read execution-algos' sexp for every
-   constructor, or a follow file would not load in the engine. *)
+(* hl-copy-core's copy of the type must read execution-algos' sexp for every constructor,
+   or a follow file would not load in the engine. *)
 let%expect_test "every algorithm reaches the engine's type unchanged" =
   List.iter
     Execution_algos.Algo.[ Immediate; twap; vwap; pov; passive; iceberg; adaptive ]
@@ -56,7 +57,8 @@ let%expect_test "every algorithm reaches the engine's type unchanged" =
                  (Execution_algos.Algo.sexp_of_t a)
                  (Hl_copy_core.Exec_algo.sexp_of_t engine)
                : bool)]);
-  [%expect {|
+  [%expect
+    {|
     (immediate (same true))
     (twap (same true))
     (vwap (same true))

@@ -68,7 +68,8 @@ let%expect_test "the execution block of a follower's status" =
   |> Engine_status.of_json
   |> List.iter ~f:(fun (s : Engine_status.Follow_status.t) ->
     print_s [%sexp (s.execution : Api_types.Execution.t option)]);
-  [%expect {|
+  [%expect
+    {|
     (((algo twap) (parents 2) (filled_parents 1) (fill_rate 0.83)
       (shortfall_bps 1.2) (slippage_bps 1) (fees 1.1) (active 1)
       (recent

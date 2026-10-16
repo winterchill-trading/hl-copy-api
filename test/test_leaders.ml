@@ -341,7 +341,8 @@ let%expect_test "universe checks, persistence, stats and integrity from leader-s
     ; severity = Critical
     ; message = "trades in step with 2 other watched accounts (cluster of 3)"
     ; evidence =
-        Co_trading { cluster = [ flagged; "synthetic-0005"; "synthetic-0006" ]; peers = [] }
+        Co_trading
+          { cluster = [ flagged; "synthetic-0005"; "synthetic-0006" ]; peers = [] }
     }
   in
   let universe, reports =
@@ -352,7 +353,8 @@ let%expect_test "universe checks, persistence, stats and integrity from leader-s
         ; bootstrap_samples = 50
         ; random_draws = 50
         }
-      ~stats:{ LS.Leader_stats.Config.default with bootstrap_samples = 50; common_bars = 60 }
+      ~stats:
+        { LS.Leader_stats.Config.default with bootstrap_samples = 50; common_bars = 60 }
       ~integrity:(String.Map.singleton flagged [ flag ])
       reports
   in
@@ -405,7 +407,8 @@ let%expect_test "universe checks, persistence, stats and integrity from leader-s
           (Option.map d.stats ~f:(fun s -> s.periods, Option.is_some s.psr, s.accepted)
            : (int * bool * bool option) option)
         ~integrity:(d.integrity : Api_types.Scoring.Integrity_flag.t list)];
-  [%expect {|
+  [%expect
+    {|
     ((formation sharpe) (periods 2) (decay 6) (transition_rows 5)
      (leaders_with_stats 12) (trials (12)) (flagged 1) (excluded 1))
     ((eligible false)
