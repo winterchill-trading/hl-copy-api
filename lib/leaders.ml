@@ -117,9 +117,9 @@ let list = function
   | _ -> []
 ;;
 
-(* hl-leaderboard's ["scoring_universe"] (leader-scoring's [Report.Universe.to_json]):
-   the persistence test, the selection statistics and the integrity counts, flattened
-   for the page. *)
+(* hl-leaderboard's ["scoring_universe"] (leader-scoring's [Report.Universe.to_json]): the
+   persistence test, the selection statistics and the integrity counts, flattened for the
+   page. *)
 let universe_of_json json : Api_types.Scoring.Universe.t option =
   match json with
   | None | Some `Null -> None
@@ -141,14 +141,18 @@ let universe_of_json json : Api_types.Scoring.Universe.t option =
       ; rank_correlation_upper = float_opt (Option.bind rc ~f:(member "upper"))
       ; top_stays_top_half = float_opt (member "top_stays_top_half" p)
       ; decay =
-          List.map (list (member "decay" p)) ~f:(fun d ->
-            float_opt (member "mean_rank_correlation" d))
+          List.map
+            (list (member "decay" p))
+            ~f:(fun d -> float_opt (member "mean_rank_correlation" d))
       ; transition =
           (* counts to row shares *)
-          List.map (list (member "transition" p)) ~f:(fun row ->
-            let counts = List.map (list (Some row)) ~f:(fun c -> num (Some c)) in
-            let total = List.sum (module Float) counts ~f:Fn.id in
-            List.map counts ~f:(fun c -> if Float.( > ) total 0. then c /. total else 0.))
+          List.map
+            (list (member "transition" p))
+            ~f:(fun row ->
+              let counts = List.map (list (Some row)) ~f:(fun c -> num (Some c)) in
+              let total = List.sum (module Float) counts ~f:Fn.id in
+              List.map counts ~f:(fun c ->
+                if Float.( > ) total 0. then c /. total else 0.))
       ; top_k = int (b "top_k")
       ; top_k_return = float_opt (b "top_k_return")
       ; random_mean = float_opt (b "random_mean")
@@ -278,15 +282,18 @@ let scoring_detail report =
                ; top_quantile_windows =
                    Option.value (int (member "top_quantile_windows" p)) ~default:0
                ; percentiles =
-                   List.filter_map (list (member "percentiles" p)) ~f:(function
-                     | `List [ time; pct ] ->
-                       Some
-                         { Api_types.Scoring.Persistence_point.time = num (Some time)
-                         ; percentile = num (Some pct)
-                         }
-                     | _ -> None)
+                   List.filter_map
+                     (list (member "percentiles" p))
+                     ~f:(function
+                       | `List [ time; pct ] ->
+                         Some
+                           { Api_types.Scoring.Persistence_point.time = num (Some time)
+                           ; percentile = num (Some pct)
+                           }
+                       | _ -> None)
                ; universe_persistent = bool (member "universe_persistent" p)
-               ; universe_rank_correlation = float_opt (member "universe_rank_correlation" p)
+               ; universe_rank_correlation =
+                   float_opt (member "universe_rank_correlation" p)
                })
       ; stats =
           (match member "stats" report with
@@ -317,8 +324,9 @@ let scoring_detail report =
             let accounts =
               List.concat_map [ "cluster"; "group"; "accounts" ] ~f:(fun key ->
                 List.filter_map (list (member key evidence)) ~f:(fun j -> str (Some j)))
-              @ List.filter_map (list (member "counterparties" evidence)) ~f:(fun c ->
-                str (member "account" c))
+              @ List.filter_map
+                  (list (member "counterparties" evidence))
+                  ~f:(fun c -> str (member "account" c))
               |> List.dedup_and_sort ~compare:String.compare
               |> List.filter ~f:(fun a ->
                 not (Option.equal String.equal (Some a) (str (member "account" report))))

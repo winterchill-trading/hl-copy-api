@@ -1,6 +1,6 @@
 (** One follow as the API keeps it: which leader a user copies, how (the web form's scale
-    mode and caps, the execution algorithm), whether the copy is running, and when it was created and last changed.
-    Stopped follows are kept so the dashboard can show them. *)
+    mode and caps, the execution algorithm), whether the copy is running, and when it was
+    created and last changed. Stopped follows are kept so the dashboard can show them. *)
 
 open! Core
 open Hl_protocol
