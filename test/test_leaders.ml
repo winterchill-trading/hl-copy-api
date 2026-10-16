@@ -324,3 +324,98 @@ let%expect_test "leader-scoring summaries order the list; reports become the pag
     |}];
   return ()
 ;;
+
+(* The contract with leader-scoring, end to end: its universe and report JSON, as
+   hl-leaderboard writes them, decode into the page's types. *)
+let%expect_test "universe checks, persistence, stats and integrity from leader-scoring" =
+  let module LS = Leader_scoring in
+  let start = Time_ns.of_string_with_utc_offset "2026-01-01T00:00:00Z" in
+  let reports =
+    LS.Synthetic.universe ~seed:3 ~start ~leaders:12 ~days:120
+    |> List.map ~f:(fun (h, _) -> LS.Report.create h)
+  in
+  let flagged = "synthetic-0004" in
+  let flag : LS.Integrity.Flag.t =
+    { account = flagged
+    ; kind = Co_trading
+    ; severity = Critical
+    ; message = "trades in step with 2 other watched accounts (cluster of 3)"
+    ; evidence =
+        Co_trading { cluster = [ flagged; "synthetic-0005"; "synthetic-0006" ]; peers = [] }
+    }
+  in
+  let universe, reports =
+    LS.Report.analyse
+      ~persistence:
+        { LS.Persistence.Config.default with
+          min_leaders = 5
+        ; bootstrap_samples = 50
+        ; random_draws = 50
+        }
+      ~stats:{ LS.Leader_stats.Config.default with bootstrap_samples = 50; common_bars = 60 }
+      ~integrity:(String.Map.singleton flagged [ flag ])
+      reports
+  in
+  let response =
+    `Assoc
+      [ "generated_at", `String "2026-05-01T00:00:00Z"
+      ; "leaders", `List []
+      ; "scoring_universe", LS.Report.Universe.to_json universe
+      ]
+    |> Leaders.leaders_of_json ~followers
+    |> Or_error.ok_exn
+  in
+  let u = Option.value_exn response.universe in
+  print_s
+    [%message
+      ""
+        ~formation:u.formation
+        ~periods:(u.periods : int)
+        ~decay:(List.length u.decay : int)
+        ~transition_rows:(List.length u.transition : int)
+        ~leaders_with_stats:(u.leaders_with_stats : int)
+        ~trials:(u.trials : int option)
+        ~flagged:(u.flagged : int)
+        ~excluded:(u.excluded : int)];
+  let ranked = LS.Report.rank reports in
+  let report, score =
+    List.find_exn ranked ~f:(fun (r, _) -> String.equal r.record.account flagged)
+  in
+  let detail =
+    `Assoc
+      [ "address", `String "0x87f9cd15f5050a9283b8896300f7c8cf69ece2cf"
+      ; "fills", `List []
+      ; "positions", `List []
+      ; "equity_curve", `List []
+      ; "report", LS.Report.to_json report (Some score)
+      ]
+    |> Leaders.leader_detail_of_json ~followers
+    |> Or_error.ok_exn
+  in
+  let d = Option.value_exn detail.scoring in
+  print_s
+    [%message
+      ""
+        ~eligible:(d.eligible : bool)
+        ~reasons:(d.reasons : string list)
+        ~persistence_windows:
+          (Option.map d.persistence ~f:(fun p -> p.windows, List.length p.percentiles)
+           : (int * int) option)
+        ~stats:
+          (Option.map d.stats ~f:(fun s -> s.periods, Option.is_some s.psr, s.accepted)
+           : (int * bool * bool option) option)
+        ~integrity:(d.integrity : Api_types.Scoring.Integrity_flag.t list)];
+  [%expect {|
+    ((formation sharpe) (periods 2) (decay 6) (transition_rows 5)
+     (leaders_with_stats 12) (trials (12)) (flagged 1) (excluded 1))
+    ((eligible false)
+     (reasons
+      ("integrity: trades in step with 2 other watched accounts (cluster of 3)"))
+     (persistence_windows ((3 3))) (stats ((120 true (false))))
+     (integrity
+      (((kind co_trading) (severity critical)
+        (message "trades in step with 2 other watched accounts (cluster of 3)")
+        (accounts (synthetic-0005 synthetic-0006))))))
+    |}];
+  return ()
+;;

@@ -101,6 +101,69 @@ let rank_by_scoring (leaders : Api_types.Leader.t list) =
     |> List.mapi ~f:(fun i (l : Api_types.Leader.t) -> { l with rank = i + 1 }))
 ;;
 
+let float_opt = function
+  | Some (`Float f) -> Some f
+  | Some (`Int i) -> Some (Float.of_int i)
+  | _ -> None
+;;
+
+let bool = function
+  | Some (`Bool b) -> b
+  | _ -> false
+;;
+
+let list = function
+  | Some (`List l) -> l
+  | _ -> []
+;;
+
+(* hl-leaderboard's ["scoring_universe"] (leader-scoring's [Report.Universe.to_json]):
+   the persistence test, the selection statistics and the integrity counts, flattened
+   for the page. *)
+let universe_of_json json : Api_types.Scoring.Universe.t option =
+  match json with
+  | None | Some `Null -> None
+  | Some u ->
+    Option.try_with (fun () ->
+      let p = Option.value (member "persistence" u) ~default:(`Assoc []) in
+      let s = Option.value (member "stats" u) ~default:(`Assoc []) in
+      let i = Option.value (member "integrity" u) ~default:(`Assoc []) in
+      let rc = member "rank_correlation" p in
+      let baseline = member "baseline" p in
+      let b key = Option.bind baseline ~f:(member key) in
+      { Api_types.Scoring.Universe.persistent = bool (member "persistent" p)
+      ; fading = bool (member "fading" p)
+      ; formation = Option.value (str (member "formation" p)) ~default:""
+      ; window_days = float_opt (member "window_days" p)
+      ; periods = Option.value (int (member "periods" p)) ~default:0
+      ; rank_correlation = float_opt (Option.bind rc ~f:(member "estimate"))
+      ; rank_correlation_lower = float_opt (Option.bind rc ~f:(member "lower"))
+      ; rank_correlation_upper = float_opt (Option.bind rc ~f:(member "upper"))
+      ; top_stays_top_half = float_opt (member "top_stays_top_half" p)
+      ; decay =
+          List.map (list (member "decay" p)) ~f:(fun d ->
+            float_opt (member "mean_rank_correlation" d))
+      ; transition =
+          (* counts to row shares *)
+          List.map (list (member "transition" p)) ~f:(fun row ->
+            let counts = List.map (list (Some row)) ~f:(fun c -> num (Some c)) in
+            let total = List.sum (module Float) counts ~f:Fn.id in
+            List.map counts ~f:(fun c -> if Float.( > ) total 0. then c /. total else 0.))
+      ; top_k = int (b "top_k")
+      ; top_k_return = float_opt (b "top_k_return")
+      ; random_mean = float_opt (b "random_mean")
+      ; baseline_percentile = float_opt (b "percentile")
+      ; baseline_p_value = float_opt (b "p_value")
+      ; leaders_with_stats = Option.value (int (member "leaders" s)) ~default:0
+      ; trials = int (Option.bind (member "trials" s) ~f:(member "count"))
+      ; pbo = float_opt (member "pbo" s)
+      ; spa_p_value = float_opt (member "spa_p_value" s)
+      ; accepted = Option.value (int (member "accepted" s)) ~default:0
+      ; flagged = Option.value (int (member "flagged" i)) ~default:0
+      ; excluded = Option.value (int (member "excluded" i)) ~default:0
+      })
+;;
+
 let leaders_of_json ~followers json =
   match member "leaders" json with
   | Some (`List entries) ->
@@ -116,6 +179,7 @@ let leaders_of_json ~followers json =
     { Api_types.Leaders_response.as_of =
         Option.value_map (str (member "generated_at" json)) ~default:0. ~f:ms_of_iso
     ; leaders = rank_by_scoring leaders
+    ; universe = universe_of_json (member "scoring_universe" json)
     }
   | _ -> Or_error.error_string "leaderboard response without a leaders list"
 ;;
@@ -202,6 +266,68 @@ let scoring_detail report =
             ; severity = Option.value (str (member "severity" a)) ~default:"info"
             ; time = num (member "time_ms" a)
             ; message = Option.value (str (member "message" a)) ~default:""
+            })
+      ; persistence =
+          (match member "persistence" report with
+           | None | Some `Null -> None
+           | Some p ->
+             Some
+               { Api_types.Scoring.Persistence.windows =
+                   Option.value (int (member "windows" p)) ~default:0
+               ; mean_percentile = float_opt (member "mean_percentile" p)
+               ; top_quantile_windows =
+                   Option.value (int (member "top_quantile_windows" p)) ~default:0
+               ; percentiles =
+                   List.filter_map (list (member "percentiles" p)) ~f:(function
+                     | `List [ time; pct ] ->
+                       Some
+                         { Api_types.Scoring.Persistence_point.time = num (Some time)
+                         ; percentile = num (Some pct)
+                         }
+                     | _ -> None)
+               ; universe_persistent = bool (member "universe_persistent" p)
+               ; universe_rank_correlation = float_opt (member "universe_rank_correlation" p)
+               })
+      ; stats =
+          (match member "stats" report with
+           | None | Some `Null -> None
+           | Some st ->
+             Some
+               { Api_types.Scoring.Stats.periods =
+                   Option.value (int (member "periods" st)) ~default:0
+               ; periods_per_year = num (member "periods_per_year" st)
+               ; sharpe_annualized = float_opt (member "sharpe_annualized" st)
+               ; psr = float_opt (member "psr" st)
+               ; dsr = float_opt (member "dsr" st)
+               ; min_track_record_periods =
+                   float_opt (member "min_track_record_periods" st)
+               ; pbo = float_opt (member "pbo" st)
+               ; spa_p_value = float_opt (member "spa_p_value" st)
+               ; accepted =
+                   (match member "accepted" st with
+                    | Some (`Bool b) -> Some b
+                    | _ -> None)
+               ; reasons =
+                   List.filter_map (list (member "reasons" st)) ~f:(fun j -> str (Some j))
+               })
+      ; integrity =
+          decode "integrity" (fun f ->
+            let evidence = Option.value (member "evidence" f) ~default:(`Assoc []) in
+            (* the other accounts involved, whichever form the evidence has *)
+            let accounts =
+              List.concat_map [ "cluster"; "group"; "accounts" ] ~f:(fun key ->
+                List.filter_map (list (member key evidence)) ~f:(fun j -> str (Some j)))
+              @ List.filter_map (list (member "counterparties" evidence)) ~f:(fun c ->
+                str (member "account" c))
+              |> List.dedup_and_sort ~compare:String.compare
+              |> List.filter ~f:(fun a ->
+                not (Option.equal String.equal (Some a) (str (member "account" report))))
+            in
+            { Api_types.Scoring.Integrity_flag.kind =
+                Option.value (str (member "kind" f)) ~default:""
+            ; severity = Option.value (str (member "severity" f)) ~default:"info"
+            ; message = Option.value (str (member "message" f)) ~default:""
+            ; accounts
             })
       })
 ;;
