@@ -46,7 +46,7 @@ let%expect_test "migrations apply once, so replicas can share the database" =
       ""
         ~first:(Store_pg.applied_migrations first : int list)
         ~second:(Store_pg.applied_migrations second : int list)];
-  [%expect {| ((first (1)) (second ())) |}];
+  [%expect {| ((first (1 2)) (second ())) |}];
   let%bind () = Store_pg.close first in
   Store_pg.close second
 ;;

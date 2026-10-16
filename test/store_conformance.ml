@@ -28,6 +28,7 @@ let record
   ; state
   ; created_ms
   ; updated_ms = created_ms
+  ; algo = None
   }
 ;;
 
@@ -98,6 +99,7 @@ let follows store =
         }
     ; state = Paused
     ; updated_ms = 1_800_000_000_123
+    ; algo = Some "twap:1m:6"
     }
   in
   let%bind () = ok (Store.put_follow store changed) in

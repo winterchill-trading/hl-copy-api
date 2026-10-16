@@ -75,7 +75,7 @@ let follow_state =
 
 let follow_columns =
   "id, follower, leader, scale_mode, scale_value, max_leverage, max_notional_per_symbol, \
-   max_daily_loss, allowlist, min_order_notional, state, created_ms, updated_ms"
+   max_daily_loss, allowlist, min_order_notional, state, created_ms, updated_ms, algo"
 ;;
 
 (* The scale is two columns (mode and value, constrained together in the migration), so a
@@ -94,7 +94,8 @@ let follow_row =
   and min_order_notional = column "min_order_notional" float
   and state = column "state" follow_state
   and created_ms = column "created_ms" int
-  and updated_ms = column "updated_ms" int in
+  and updated_ms = column "updated_ms" int
+  and algo = column "algo" (nullable string) in
   let scale : (Api_types.Scale_mode.t, Error.t) Result.t =
     match scale_mode, scale_value with
     | "equity_ratio", None -> Ok Equity_ratio
@@ -119,6 +120,7 @@ let follow_row =
     ; state
     ; created_ms
     ; updated_ms
+    ; algo
     })
 ;;
 
@@ -142,13 +144,14 @@ let follow_params (r : Follow_record.t) =
   ; Param.create follow_state r.state
   ; Param.int r.created_ms
   ; Param.int r.updated_ms
+  ; Param.option Type.string r.algo
   ]
 ;;
 
 let insert_follow =
   sprintf
     "INSERT INTO follows (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-     $13)"
+     $13, $14)"
     follow_columns
 ;;
 
@@ -196,7 +199,7 @@ let put_follow t r =
            max_notional_per_symbol = EXCLUDED.max_notional_per_symbol, max_daily_loss = \
            EXCLUDED.max_daily_loss, allowlist = EXCLUDED.allowlist, min_order_notional = \
            EXCLUDED.min_order_notional, state = EXCLUDED.state, created_ms = \
-           EXCLUDED.created_ms, updated_ms = EXCLUDED.updated_ms")
+           EXCLUDED.created_ms, updated_ms = EXCLUDED.updated_ms, algo = EXCLUDED.algo")
        ~params:(follow_params r))
   >>| Or_error.ignore_m
 ;;

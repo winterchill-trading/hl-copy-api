@@ -10,6 +10,7 @@ type t =
   ; state : Api_types.Follow_state.t
   ; created_ms : int
   ; updated_ms : int
+  ; algo : string option [@sexp.option]
   }
 [@@deriving sexp, compare, equal]
 
