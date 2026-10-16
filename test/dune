@@ -17,11 +17,13 @@
   hl-copy-api
   hl-copy-api-types
   hl-copy-core
+  execution-algos
   hl-protocol
   hl-client
   hl-sim
   exchange-core-engine
   hl-leaderboard
+  leader-scoring
   venue-net
   cohttp
   pg-async

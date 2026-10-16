@@ -38,6 +38,7 @@
   hl-copy-core
   hl-copy-api-types
   market-data
+  execution-algos
   pg-async
   (venue-net :with-test)
   (hl-sim :with-test)
