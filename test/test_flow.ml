@@ -212,7 +212,40 @@ let%expect_test "login, agent, builder fee, follow, pause, stop against hl-sim" 
     let%bind status, follow = C.call client ~token `POST ("/follows/" ^ id ^ "/resume") in
     print_s [%sexp (status : int), (C.str "state" follow : string)];
     [%expect {| (200 running) |}];
+    (* An execution algorithm: absent while immediate, rejected when execution-algos
+       cannot read it, otherwise kept in its short form and written into the engine's
+       config. *)
+    let has_algo json = Option.is_some (Yojson.Safe.Util.member "algo" json |> function
+      | `Null -> None
+      | j -> Some j)
+    in
+    let patch body = C.call client ~token `PATCH ("/follows/" ^ id) ~body:(`Assoc body) in
+    let config () = In_channel.read_all (dir ^/ "configs" ^/ id ^ ".sexp") in
+    let%bind status, err = patch [ "algo", `String "twap:0s" ] in
+    print_s
+      [%sexp
+        (has_algo follow : bool)
+        , (status : int)
+        , (String.is_prefix (C.str "error" err) ~prefix:"(\"invalid execution algorithm\""
+           : bool)];
+    let%bind status, follow = patch [ "algo", `String "twap:90s:3" ] in
+    print_s
+      [%sexp
+        (status : int)
+        , (C.str "algo" follow : string)
+        , (C.str "state" follow : string)
+        , (String.is_substring (config ()) ~substring:"(algo (Twap (duration_ms 90000)"
+           : bool)];
+    [%expect {|
+      (false 400 true)
+      (200 twap:90s:3 running true)
+      |}];
     let%bind status, me = C.call client ~token `GET "/me" in
+    let first_algo me =
+      match C.path "follows" me with
+      | `List [ f ] -> C.str "algo" f
+      | _ -> ""
+    in
     print_s
       [%sexp
         (status : int)
@@ -221,8 +254,16 @@ let%expect_test "login, agent, builder fee, follow, pause, stop against hl-sim" 
         , ((match C.path "follows" me with
             | `List l -> List.length l
             | _ -> -1)
-           : int)];
-    [%expect {| (200 1000000.0 true 1) |}];
+           : int)
+        , (first_algo me : string)];
+    [%expect {| (200 1000000.0 true 1 twap:90s:3) |}];
+    let%bind status, follow = patch [ "algo", `String "immediate" ] in
+    print_s
+      [%sexp
+        (status : int)
+        , (has_algo follow : bool)
+        , (String.is_substring (config ()) ~substring:"algo" : bool)];
+    [%expect {| (200 false false) |}];
     let%bind status, follow = C.call client ~token `DELETE ("/follows/" ^ id) in
     print_s
       [%sexp

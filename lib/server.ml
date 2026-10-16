@@ -81,6 +81,7 @@ module Bodies = struct
     { state : Api_types.Follow_state.t option [@default None]
     ; scale : Api_types.Scale_mode.t option [@default None]
     ; caps : Api_types.Caps.t option [@default None]
+    ; algo : string option [@default None]
     }
   [@@deriving of_yojson] [@@yojson.allow_extra_fields]
 end
@@ -316,6 +317,8 @@ let follow_view (engine : Engine_status.t) (r : Follows.Record.t) : Api_types.Fo
   ; created_at = Float.of_int r.created_ms
   ; pnl = Option.value_map status ~default:0. ~f:(fun s -> s.pnl)
   ; positions = Option.value_map status ~default:[] ~f:(fun s -> s.positions)
+  ; algo = r.algo
+  ; execution = Option.bind status ~f:(fun s -> s.execution)
   }
 ;;
 
@@ -489,10 +492,25 @@ let follow_reply ?(status = `OK) t r =
   Reply.json ~status (Api_types.Follow.yojson_of_t (follow_view engine r))
 ;;
 
-let update_follow t ~follower id ?scale ?caps ?state () =
+let parse_algo s =
+  match Exec_algo_spec.parse s with
+  | Ok a -> a
+  | Error e -> fail `Bad_request (Error.to_string_hum e)
+;;
+
+let update_follow t ~follower id ?scale ?caps ?state ?algo () =
   let%bind r = find_follow t ~follower id in
   match%bind
-    Follows.update t.follows ~follower r.id ?scale ?caps ?state ~now_ms:(ms_now ()) ()
+    Follows.update
+      t.follows
+      ~follower
+      r.id
+      ?scale
+      ?caps
+      ?state
+      ?algo
+      ~now_ms:(ms_now ())
+      ()
   with
   | Ok r -> follow_reply t r
   | Error e -> fail `Conflict (Error.to_string_hum e)
@@ -651,6 +669,8 @@ let route t ~body req ~meth ~path =
         let follower = auth () in
         let%bind json = read_json body req in
         let r = decode Api_types.Follow_request.t_of_yojson json in
+        (* checked before anything is stored: a bad algorithm is the caller's error *)
+        Option.iter r.algo ~f:(fun a -> ignore (parse_algo a : string option));
         let%bind active = stored (Agents.active t.agents ~owner:follower) in
         if Option.is_none active then fail `Conflict "approve an agent before following";
         let leader = Approvals.address_of_api r.leader in
@@ -661,7 +681,9 @@ let route t ~body req ~meth ~path =
             ~leader
             ~scale:r.scale
             ~caps:r.caps
+            ?algo:(Option.bind r.algo ~f:parse_algo)
             ~now_ms:(ms_now ())
+            ()
           >>| ok_or ~status:`Conflict
         in
         Metrics.incr t.metrics "follows_started";
@@ -682,7 +704,8 @@ let route t ~body req ~meth ~path =
         (match u.state with
          | Some Stopped -> fail `Bad_request "use DELETE to stop a follow"
          | Some (Running | Paused) | None -> ());
-        update_follow t ~follower id ?scale:u.scale ?caps:u.caps ?state:u.state () )
+        let algo = Option.map u.algo ~f:parse_algo in
+        update_follow t ~follower id ?scale:u.scale ?caps:u.caps ?state:u.state ?algo () )
   | `DELETE, [ "follows"; id ] ->
     ( "/follows/:id"
     , fun () ->

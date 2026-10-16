@@ -12,9 +12,9 @@ POST   /agent/approved         auth    Agent_approval (approve_agent optional) -
 POST   /agent/revoke           auth    -> Agent_status
 POST   /builder-fee            auth    Builder_fee_approval (action optional) -> Agent_status
 GET    /follows                auth    -> Follow list
-POST   /follows                auth    Follow_request -> Follow (201); needs an active agent
+POST   /follows                auth    Follow_request (algo optional) -> Follow (201); needs an active agent
 GET    /follows/:id            auth    -> Follow
-PATCH  /follows/:id            auth    Follow_update (+ optional scale, caps) -> Follow
+PATCH  /follows/:id            auth    Follow_update (state, algo; + optional scale, caps) -> Follow
 DELETE /follows/:id            auth    -> Follow (stopped)
 POST   /follows/:id/pause|resume|stop  auth -> Follow
 GET    /leaders                        -> Leaders_response
@@ -22,6 +22,11 @@ GET    /leaders/:address               -> Leader_detail
 GET    /me                     auth    -> Me
 GET    /ws?token=<token>               websocket, see {!Api_types.Ws_push}
     v}
+
+    [algo] is execution-algos' short form ({!Exec_algo_spec}); a form it cannot read or
+    rejects is a 400. A follow's [algo] is absent while it is immediate and its
+    [execution] (the engine's cost report) while the engine has none, so a default follow
+    reads as before.
 
     Errors are {!Api_types.Api_error} with 400 (bad body), 401 (no or bad session), 404,
     409 (state conflict), 413 (body over 64 KiB), 429 (rate limited), 502 (exchange or
