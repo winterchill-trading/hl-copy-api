@@ -32,7 +32,7 @@ let%expect_test "start, pause, resume, stop, start again" =
     let config_dir = dir ^/ "configs" in
     let t = Follows.create ~store:(memory ()) ~config_dir in
     let%bind r =
-      Follows.start t ~follower ~leader ~scale:(Multiplier 0.5) ~caps ~now_ms:1
+      Follows.start t ~follower ~leader ~scale:(Multiplier 0.5) ~caps ~now_ms:1 ()
       >>| Or_error.ok_exn
     in
     print_endline r.id;
@@ -58,7 +58,7 @@ let%expect_test "start, pause, resume, stop, start again" =
          : bool)];
     [%expect {| true |}];
     let%bind again =
-      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:2
+      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:2 ()
     in
     print_s [%sexp (again : Follows.Record.t Or_error.t)];
     [%expect
@@ -95,7 +95,7 @@ let%expect_test "start, pause, resume, stop, start again" =
     print_s [%sexp (Result.is_error restarted : bool)];
     [%expect {| true |}];
     let%bind again =
-      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:5
+      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:5 ()
       >>| Or_error.ok_exn
     in
     print_s
@@ -116,7 +116,7 @@ let%expect_test "follows are private to their user, and ids are checked" =
   Sim.with_dir (fun dir ->
     let t = Follows.create ~store:(memory ()) ~config_dir:(dir ^/ "c") in
     let%bind r =
-      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:1
+      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:1 ()
       >>| Or_error.ok_exn
     in
     let found ~follower id =
@@ -144,11 +144,11 @@ let%expect_test "invalid settings write nothing" =
     in
     let%bind () =
       show
-        (Follows.start t ~follower ~leader:follower ~scale:Equity_ratio ~caps ~now_ms:1)
+        (Follows.start t ~follower ~leader:follower ~scale:Equity_ratio ~caps ~now_ms:1 ())
     in
     let%bind () =
       show
-        (Follows.start t ~follower ~leader ~scale:(Multiplier Float.nan) ~caps ~now_ms:1)
+        (Follows.start t ~follower ~leader ~scale:(Multiplier Float.nan) ~caps ~now_ms:1 ())
     in
     let%bind () =
       show
@@ -158,7 +158,7 @@ let%expect_test "invalid settings write nothing" =
            ~leader
            ~scale:(Fixed_notional Float.infinity)
            ~caps
-           ~now_ms:1)
+           ~now_ms:1 ())
     in
     let%bind () =
       show
@@ -168,7 +168,7 @@ let%expect_test "invalid settings write nothing" =
            ~leader
            ~scale:Equity_ratio
            ~caps:{ caps with min_order_notional = -1. }
-           ~now_ms:1)
+           ~now_ms:1 ())
     in
     ls config_dir;
     let%bind all = Follows.all t >>| Or_error.ok_exn in
@@ -192,7 +192,7 @@ let%expect_test "sync_configs makes the config directory match the store" =
     let store = memory () in
     let t = Follows.create ~store ~config_dir in
     let start leader =
-      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:1
+      Follows.start t ~follower ~leader ~scale:Equity_ratio ~caps ~now_ms:1 ()
       >>| Or_error.ok_exn
     in
     let%bind running = start leader in
@@ -233,6 +233,7 @@ let%expect_test "records of the file-based version are imported once" =
       ; state = Paused
       ; created_ms = 7
       ; updated_ms = 8
+      ; algo = None
       }
     in
     Out_channel.write_all

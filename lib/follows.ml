@@ -43,8 +43,9 @@ let follower_config_exn (r : Record.t) =
     ; min_order_notional = usd r.caps.min_order_notional
     }
   in
+  let algo = Exec_algo_spec.to_exec_algo r.algo |> Or_error.ok_exn in
   let config =
-    Follower_config.create ~mode ~caps ~follower:r.follower ~leader:r.leader ()
+    Follower_config.create ~mode ~caps ~algo ~follower:r.follower ~leader:r.leader ()
   in
   let config =
     { config with
@@ -106,7 +107,7 @@ let save t (r : Record.t) =
   Deferred.return (write_config t r)
 ;;
 
-let start t ~follower ~leader ~scale ~caps ~now_ms =
+let start t ~follower ~leader ~scale ~caps ?algo ~now_ms () =
   let open Deferred.Or_error.Let_syntax in
   let id = id ~follower ~leader in
   match%bind Store.find_follow t.store ~id with
@@ -125,6 +126,7 @@ let start t ~follower ~leader ~scale ~caps ~now_ms =
       ; state = Running
       ; created_ms
       ; updated_ms = now_ms
+      ; algo
       }
     in
     let%map () = save t record in
@@ -149,7 +151,7 @@ let find t ~follower id =
          ~f:(Option.filter ~f:(fun (r : Record.t) -> Address.equal r.follower follower))
 ;;
 
-let update t ~follower id ?scale ?caps ?state ~now_ms () =
+let update t ~follower id ?scale ?caps ?state ?algo ~now_ms () =
   let open Deferred.Or_error.Let_syntax in
   match%bind find t ~follower id with
   | None -> Deferred.Or_error.error_s [%message "no such follow" (id : string)]
@@ -162,6 +164,7 @@ let update t ~follower id ?scale ?caps ?state ~now_ms () =
         scale = Option.value scale ~default:r.scale
       ; caps = Option.value caps ~default:r.caps
       ; state = Option.value state ~default:r.state
+      ; algo = Option.value algo ~default:r.algo
       ; updated_ms = now_ms
       }
     in

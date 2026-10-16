@@ -27,14 +27,17 @@ val id : follower:Address.t -> leader:Address.t -> string
 val follower_config : Record.t -> Hl_copy_core.Follower_config.t Or_error.t
 
 (** Starts following [leader]. Following a leader again after a stop restarts that follow
-    with the new settings; following one that is running or paused fails. *)
+    with the new settings; following one that is running or paused fails. [algo] is the
+    canonical form from {!Exec_algo_spec.parse} (default immediate). *)
 val start
   :  t
   -> follower:Address.t
   -> leader:Address.t
   -> scale:Api_types.Scale_mode.t
   -> caps:Api_types.Caps.t
+  -> ?algo:string
   -> now_ms:int
+  -> unit
   -> Record.t Or_error.t Deferred.t
 
 (** The follow [id] of [follower]; another user's follows are not found. *)
@@ -47,7 +50,8 @@ val list : t -> follower:Address.t -> Record.t list Or_error.t Deferred.t
 val all : t -> Record.t list Or_error.t Deferred.t
 
 (** Changes settings and/or state. A stopped follow cannot be changed, only started again
-    with {!start}. *)
+    with {!start}. [algo] replaces the execution algorithm ([Some None] goes back to
+    immediate). *)
 val update
   :  t
   -> follower:Address.t
@@ -55,6 +59,7 @@ val update
   -> ?scale:Api_types.Scale_mode.t
   -> ?caps:Api_types.Caps.t
   -> ?state:Api_types.Follow_state.t
+  -> ?algo:string option
   -> now_ms:int
   -> unit
   -> Record.t Or_error.t Deferred.t
