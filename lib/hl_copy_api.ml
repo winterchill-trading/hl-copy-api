@@ -5,6 +5,7 @@ module Challenge = Challenge
 module Venue = Venue
 module Approvals = Approvals
 module Agents = Agents
+module Exec_algo_spec = Exec_algo_spec
 module Follow_record = Follow_record
 module Store = Store
 module Store_memory = Store_memory

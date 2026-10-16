@@ -21,6 +21,9 @@ module Approvals = Approvals
 (** Per-user agent key offers and approvals, builder fee approvals. *)
 module Agents = Agents
 
+(** A follow's execution algorithm: parsed and validated by execution-algos. *)
+module Exec_algo_spec = Exec_algo_spec
+
 (** One follow as the API keeps it. *)
 module Follow_record = Follow_record
 
