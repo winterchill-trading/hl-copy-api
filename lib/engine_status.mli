@@ -12,7 +12,13 @@
    "pnl": 12.5,                        (USD attributed to the follow; number or string)
    "positions": [{"coin": "BTC", "size": 0.01, "entry_px": 100000,
                   "unrealized_pnl": 1.2, "leverage": 3}],
-   "last_error": "..."}                (optional)
+   "last_error": "...",                (optional)
+   "execution": {"algo": "twap", "active": [...],
+                 "recent": [{"time", "algo", "outcome", "side", "target", "filled",
+                             "avg_px", "arrival_px", "children", "fees",
+                             "arrival_slippage_bps", "shortfall_bps"}],
+                 "totals": {"parents", "filled_parents", "fees", "shortfall_bps",
+                            "slippage_bps", "fill_rate", ...}}}  (optional)
 ]}
     v} *)
 
@@ -28,6 +34,8 @@ module Follow_status : sig
     ; pnl : float
     ; positions : Api_types.Position.t list
     ; last_error : string option
+    ; execution : Api_types.Execution.t option
+    (** the algorithm, totals of the finished parents and the recent ones *)
     }
   [@@deriving sexp_of]
 end
