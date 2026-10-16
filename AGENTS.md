@@ -62,7 +62,7 @@ Format only this repository, after the tests pass:
 
 ## Dependencies and dependents
 
-- Depends on `pg-async`, `hl-copy-core`, `hl-copy-api-types` (from `../hl-copy-web`), `hl-client`,
+- Depends on `pg-async`, `hl-copy-core`, `execution-algos` (parses a follow's `algo`), `hl-copy-api-types` (from `../hl-copy-web`), `hl-client`,
   `hl-protocol`, `hl-leaderboard` (proxy; it needs `leader-scoring`, pinned before it),
   `exchange-core` and `fixed-decimal`. The pin order is in
   `.github/workflows/ci.yml`; the `hl-copy-api-types` pin names the `hl-copy-web` repository.
@@ -95,6 +95,12 @@ Check a run with one `gh run list --limit 1` and at most one
 - `User_fill` drops `builderFee` and `liquidation`. A server that decodes `/exchange` with
   `Exchange_request` loses the builder field, so use the full type when you need it.
 - Any `*.hyperliquid.xyz` exchange URL is refused at startup, so test configuration must never use one.
+- A follow's `algo` is parsed only by `Exec_algo_spec` (execution-algos); hl-copy-core keeps a
+  copy of the type and `test/test_exec_algo_spec.ml` checks the two sexps agree for every
+  constructor. Keep `algo` and `execution` out of the JSON when absent: the web smoke test and
+  older clients rely on default follows being byte for byte as before.
+- The e2e CI job builds hl-copy-engine from its main branch; it fails when hl-copy-core and
+  hl-copy-engine are mid-change, independently of this repository.
 
 ## Where to read more
 
